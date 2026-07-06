@@ -8,10 +8,19 @@ import '../services/portfolio_service.dart';
 import '../services/price_service.dart';
 import '../services/notification_service.dart';
 import '../services/profit_loss_calculator.dart';
+import '../services/storage_service.dart';
 
 /// AppStore - Central state management using Provider ChangeNotifier.
 /// Manages all app state: holdings, prices, alerts, settings.
 class AppStore extends ChangeNotifier {
+  // Settings keys trong Hive settings box.
+  static const _kOnboarded = 'onboarded';
+  static const _kDarkMode = 'darkMode';
+  static const _kPrivacyMode = 'privacyMode';
+  static const _kPinEnabled = 'pinEnabled';
+  static const _kPin = 'pin';
+  static const _kPreferredGoldTypeId = 'preferredGoldTypeId';
+
   // Services
   final _portfolio = PortfolioService.instance;
   final _priceService = PriceService.instance;
@@ -22,6 +31,7 @@ class AppStore extends ChangeNotifier {
   bool _isDarkMode = true;
   bool _privacyMode = false; // hide actual amounts
   bool _pinEnabled = false;
+  // ignore: unused_field
   String _pin = '';
   String _preferredGoldTypeId = 'sjc';
   bool _isLoading = false;
@@ -52,11 +62,15 @@ class AppStore extends ChangeNotifier {
   PriceSourceStatus get priceStatus => _priceService.status;
   String get priceStatusMessage => _priceService.statusMessage;
 
-  /// Initialize the app
+  /// Initialize the app. Yêu cầu `StorageService.init()` đã chạy xong.
   Future<void> init() async {
     _setLoading(true, 'Đang tải dữ liệu...');
 
-    _portfolio.init();
+    _loadSettings();
+
+    await _portfolio.init();
+    await _notificationService.init();
+
     _goldTypes = _portfolio.goldTypes;
     _holdings = _portfolio.allHoldings;
 
@@ -67,34 +81,50 @@ class AppStore extends ChangeNotifier {
     notifyListeners();
   }
 
+  void _loadSettings() {
+    _isOnboarded = StorageService.getSetting<bool>(_kOnboarded) ?? false;
+    _isDarkMode = StorageService.getSetting<bool>(_kDarkMode) ?? true;
+    _privacyMode = StorageService.getSetting<bool>(_kPrivacyMode) ?? false;
+    _pinEnabled = StorageService.getSetting<bool>(_kPinEnabled) ?? false;
+    _pin = StorageService.getSetting<String>(_kPin) ?? '';
+    _preferredGoldTypeId =
+        StorageService.getSetting<String>(_kPreferredGoldTypeId) ?? 'sjc';
+  }
+
   /// Complete onboarding
-  void completeOnboarding() {
+  Future<void> completeOnboarding() async {
     _isOnboarded = true;
+    await StorageService.putSetting(_kOnboarded, true);
     notifyListeners();
   }
 
   /// Set preferred gold type
-  void setPreferredGoldType(String goldTypeId) {
+  Future<void> setPreferredGoldType(String goldTypeId) async {
     _preferredGoldTypeId = goldTypeId;
+    await StorageService.putSetting(_kPreferredGoldTypeId, goldTypeId);
     notifyListeners();
   }
 
   /// Toggle dark mode
-  void toggleDarkMode() {
+  Future<void> toggleDarkMode() async {
     _isDarkMode = !_isDarkMode;
+    await StorageService.putSetting(_kDarkMode, _isDarkMode);
     notifyListeners();
   }
 
   /// Toggle privacy mode
-  void togglePrivacyMode() {
+  Future<void> togglePrivacyMode() async {
     _privacyMode = !_privacyMode;
+    await StorageService.putSetting(_kPrivacyMode, _privacyMode);
     notifyListeners();
   }
 
   /// Enable/disable PIN lock
-  void setPinEnabled(bool enabled, {String pin = ''}) {
+  Future<void> setPinEnabled(bool enabled, {String pin = ''}) async {
     _pinEnabled = enabled;
     _pin = pin;
+    await StorageService.putSetting(_kPinEnabled, enabled);
+    await StorageService.putSetting(_kPin, pin);
     notifyListeners();
   }
 
@@ -106,7 +136,7 @@ class AppStore extends ChangeNotifier {
   }
 
   /// Add a new gold purchase
-  void addHolding({
+  Future<void> addHolding({
     required String goldTypeId,
     required double quantity,
     required String unit,
@@ -114,8 +144,8 @@ class AppStore extends ChangeNotifier {
     double fee = 0,
     required DateTime buyDate,
     String? note,
-  }) {
-    _portfolio.addHolding(
+  }) async {
+    await _portfolio.addHolding(
       goldTypeId: goldTypeId,
       quantity: quantity,
       unit: unit,
@@ -130,52 +160,52 @@ class AppStore extends ChangeNotifier {
   }
 
   /// Update an existing holding
-  void updateHolding(UserHolding holding) {
-    _portfolio.updateHolding(holding);
+  Future<void> updateHolding(UserHolding holding) async {
+    await _portfolio.updateHolding(holding);
     _holdings = _portfolio.allHoldings;
     _updatePortfolioSummary();
     notifyListeners();
   }
 
   /// Delete a holding
-  void deleteHolding(String id) {
-    _portfolio.deleteHolding(id);
+  Future<void> deleteHolding(String id) async {
+    await _portfolio.deleteHolding(id);
     _holdings = _portfolio.allHoldings;
     _updatePortfolioSummary();
     notifyListeners();
   }
 
   /// Mark a holding as sold
-  void markAsSold(String id) {
-    _portfolio.markAsSold(id);
+  Future<void> markAsSold(String id) async {
+    await _portfolio.markAsSold(id);
     _holdings = _portfolio.allHoldings;
     _updatePortfolioSummary();
     notifyListeners();
   }
 
   /// Duplicate a holding
-  void duplicateHolding(String id) {
-    _portfolio.duplicateHolding(id);
+  Future<void> duplicateHolding(String id) async {
+    await _portfolio.duplicateHolding(id);
     _holdings = _portfolio.allHoldings;
     _updatePortfolioSummary();
     notifyListeners();
   }
 
   /// Add a price alert
-  void addAlert(PriceAlert alert) {
-    _notificationService.addAlert(alert);
+  Future<void> addAlert(PriceAlert alert) async {
+    await _notificationService.addAlert(alert);
     notifyListeners();
   }
 
   /// Remove a price alert
-  void removeAlert(String id) {
-    _notificationService.removeAlert(id);
+  Future<void> removeAlert(String id) async {
+    await _notificationService.removeAlert(id);
     notifyListeners();
   }
 
   /// Toggle alert enabled
-  void toggleAlert(String id) {
-    _notificationService.toggleAlert(id);
+  Future<void> toggleAlert(String id) async {
+    await _notificationService.toggleAlert(id);
     notifyListeners();
   }
 

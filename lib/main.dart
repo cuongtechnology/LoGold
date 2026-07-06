@@ -1,8 +1,13 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:google_fonts/google_fonts.dart';
 
+import 'api/cloudflare_worker_price_adapter.dart';
+import 'api/sjc_price_adapter.dart';
 import 'constants/app_constants.dart';
+import 'services/price_service.dart';
+import 'services/storage_service.dart';
 import 'stores/app_store.dart';
 import 'screens/onboarding_screen.dart';
 import 'screens/home_screen.dart';
@@ -11,9 +16,37 @@ import 'screens/price_table_screen.dart';
 import 'screens/top_lo_screen.dart';
 import 'screens/settings_screen.dart';
 
-void main() {
+/// URL của CF Worker proxy giá vàng. Truyền lúc build:
+///   flutter build web --dart-define=LO_WORKER_URL=https://lo-gold-proxy.xxx.workers.dev
+/// Nếu rỗng → web dùng Mock, mobile dùng SjcPriceAdapter fetch trực tiếp.
+const _kWorkerUrl = String.fromEnvironment('LO_WORKER_URL', defaultValue: '');
+
+Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await StorageService.init();
+  _configurePriceAdapters();
   runApp(const LoApp());
+}
+
+/// Ưu tiên adapter theo platform + config:
+/// 1. Có `LO_WORKER_URL` → dùng CF Worker (cả web + mobile hưởng cache chung).
+/// 2. Mobile không có Worker URL → `SjcPriceAdapter` fetch trực tiếp.
+/// 3. Web không có Worker URL → giữ Mock (CORS chặn fetch trực tiếp).
+void _configurePriceAdapters() {
+  final price = PriceService.instance;
+
+  if (_kWorkerUrl.isNotEmpty) {
+    final worker = CloudflareWorkerPriceAdapter(baseUrl: _kWorkerUrl);
+    price.registerAdapter(worker);
+    price.setActiveAdapter(worker.sourceKey);
+    return;
+  }
+
+  if (!kIsWeb) {
+    final sjc = SjcPriceAdapter();
+    price.registerAdapter(sjc);
+    price.setActiveAdapter(sjc.sourceKey);
+  }
 }
 
 class LoApp extends StatelessWidget {

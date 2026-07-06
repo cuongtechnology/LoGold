@@ -27,6 +27,10 @@ dependencies:
   intl: ^0.19.0
   uuid: ^4.5.1
 
+  # Networking + parsing (SjcPriceAdapter)
+  http: ^1.2.2
+  xml: ^6.5.0
+
   # UI
   google_fonts: ^6.2.1
 

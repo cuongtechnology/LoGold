@@ -1,0 +1,20 @@
+name = "lo-gold-proxy"
+main = "src/index.ts"
+compatibility_date = "2025-01-01"
+
+# Cron trigger — refresh cache mỗi 5 phút để user luôn hit cache warm.
+[triggers]
+crons = ["*/5 * * * *"]
+
+# KV namespace cho cache prices.
+# Tạo lần đầu:
+#   npx wrangler kv namespace create LO_PRICE_CACHE
+# Rồi copy id/preview_id từ output vào 2 dòng dưới.
+[[kv_namespaces]]
+binding = "LO_PRICE_CACHE"
+id = "TODO_replace_with_kv_id_from_wrangler_output"
+preview_id = "TODO_replace_with_preview_id_from_wrangler_output"
+
+# Bật observability để xem log của cron + request errors trên dashboard.
+[observability]
+enabled = true

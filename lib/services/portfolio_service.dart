@@ -3,10 +3,12 @@ import '../models/user_holding.dart';
 import '../models/gold_type.dart';
 import '../services/price_service.dart';
 import '../services/profit_loss_calculator.dart';
+import '../services/storage_service.dart';
 import '../utils/gold_units.dart';
 
 /// PortfolioService - Manages user's gold holdings (CRUD operations).
-/// Uses Hive for local persistence. All data stays on device.
+/// Persist qua Hive (StorageService) — mọi mutation flush ra disk async.
+/// All data stays on device.
 class PortfolioService {
   static PortfolioService? _instance;
   static PortfolioService get instance => _instance ??= PortfolioService._();
@@ -17,19 +19,36 @@ class PortfolioService {
   final List<UserHolding> _holdings = [];
   final List<GoldType> _goldTypes = [];
 
-  /// Initialize with stored data
-  void init({
+  /// Load persisted data từ Hive. Nếu box rỗng, seed gold types từ defaults.
+  ///
+  /// `holdings` / `goldTypes` param cho phép override khi test — bỏ qua Hive.
+  Future<void> init({
     List<UserHolding>? holdings,
     List<GoldType>? goldTypes,
-  }) {
+  }) async {
     _holdings.clear();
-    if (holdings != null) _holdings.addAll(holdings);
+    if (holdings != null) {
+      _holdings.addAll(holdings);
+    } else {
+      _holdings.addAll(
+        StorageService.readMapList(StorageService.holdings)
+            .map(UserHolding.fromMap),
+      );
+    }
 
     _goldTypes.clear();
     if (goldTypes != null) {
       _goldTypes.addAll(goldTypes);
     } else {
-      _goldTypes.addAll(GoldType.defaults);
+      final stored = StorageService.readMapList(StorageService.goldTypes)
+          .map(GoldType.fromMap)
+          .toList();
+      if (stored.isEmpty) {
+        _goldTypes.addAll(GoldType.defaults);
+        await _persistGoldTypes();
+      } else {
+        _goldTypes.addAll(stored);
+      }
     }
   }
 
@@ -46,8 +65,9 @@ class PortfolioService {
   }
 
   /// Add a custom gold type
-  void addGoldType(GoldType goldType) {
+  Future<void> addGoldType(GoldType goldType) async {
     _goldTypes.add(goldType);
+    await _persistGoldTypes();
   }
 
   /// Get all active holdings (status = "holding")
@@ -58,7 +78,7 @@ class PortfolioService {
   List<UserHolding> get allHoldings => List.unmodifiable(_holdings);
 
   /// Add a new gold purchase
-  UserHolding addHolding({
+  Future<UserHolding> addHolding({
     required String goldTypeId,
     required double quantity,
     required String unit,
@@ -67,14 +87,9 @@ class PortfolioService {
     required DateTime buyDate,
     String? note,
     String? invoiceImageUri,
-  }) {
-    // Convert quantity to luong
+  }) async {
     final quantityInLuong = GoldUnits.toLuong(quantity, unit);
-
-    // Calculate buy price per luong
     final buyPricePerLuong = GoldUnits.pricePerLuong(buyPricePerUnit, unit);
-
-    // Total cost = buy price * quantity + fee
     final totalCost = (buyPricePerLuong * quantityInLuong) + fee;
 
     final now = DateTime.now();
@@ -96,33 +111,37 @@ class PortfolioService {
     );
 
     _holdings.add(holding);
+    await _persistHoldings();
     return holding;
   }
 
   /// Update an existing holding
-  void updateHolding(UserHolding holding) {
+  Future<void> updateHolding(UserHolding holding) async {
     final index = _holdings.indexWhere((h) => h.id == holding.id);
     if (index >= 0) {
       _holdings[index] = holding.copyWith(updatedAt: DateTime.now());
+      await _persistHoldings();
     }
   }
 
   /// Delete a holding
-  void deleteHolding(String id) {
+  Future<void> deleteHolding(String id) async {
     _holdings.removeWhere((h) => h.id == id);
+    await _persistHoldings();
   }
 
   /// Mark a holding as sold
-  void markAsSold(String id) {
+  Future<void> markAsSold(String id) async {
     final index = _holdings.indexWhere((h) => h.id == id);
     if (index >= 0) {
       _holdings[index] =
           _holdings[index].copyWith(status: 'sold', updatedAt: DateTime.now());
+      await _persistHoldings();
     }
   }
 
   /// Duplicate a holding
-  UserHolding? duplicateHolding(String id) {
+  Future<UserHolding?> duplicateHolding(String id) async {
     final index = _holdings.indexWhere((h) => h.id == id);
     if (index < 0) return null;
 
@@ -145,6 +164,7 @@ class PortfolioService {
       updatedAt: now,
     );
     _holdings.add(copy);
+    await _persistHoldings();
     return copy;
   }
 
@@ -200,5 +220,21 @@ class PortfolioService {
         'note': h.note ?? '',
       };
     }).toList();
+  }
+
+  Future<void> _persistHoldings() async {
+    await StorageService.writeMapList(
+      StorageService.holdings,
+      _holdings.map((h) => h.toMap()),
+      keyOf: (m) => m['id'] as String,
+    );
+  }
+
+  Future<void> _persistGoldTypes() async {
+    await StorageService.writeMapList(
+      StorageService.goldTypes,
+      _goldTypes.map((g) => g.toMap()),
+      keyOf: (m) => m['id'] as String,
+    );
   }
 }

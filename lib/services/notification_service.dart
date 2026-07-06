@@ -1,9 +1,11 @@
 import '../models/price_alert.dart';
 import '../services/profit_loss_calculator.dart';
+import '../services/storage_service.dart';
 
 /// NotificationService - Handles price alerts and notifications.
-/// In the MVP, this provides in-app notification simulation.
-/// Can be extended with local notifications (flutter_local_notifications) later.
+/// Alerts persist qua Hive; notifications giữ in-memory (không cần lưu lâu).
+/// MVP dùng in-app notification; local push có thể thêm sau bằng
+/// `flutter_local_notifications`.
 class NotificationService {
   static NotificationService? _instance;
   static NotificationService get instance => _instance ??= NotificationService._();
@@ -16,21 +18,30 @@ class NotificationService {
   List<PriceAlert> get alerts => List.unmodifiable(_alerts);
   List<AppNotification> get notifications => List.unmodifiable(_notifications);
 
-  /// Add a new price alert
-  void addAlert(PriceAlert alert) {
+  /// Load alerts từ Hive. Notifications không persist — chỉ session này.
+  Future<void> init() async {
+    _alerts.clear();
+    _alerts.addAll(
+      StorageService.readMapList(StorageService.alerts)
+          .map(PriceAlert.fromMap),
+    );
+  }
+
+  Future<void> addAlert(PriceAlert alert) async {
     _alerts.add(alert);
+    await _persistAlerts();
   }
 
-  /// Remove an alert
-  void removeAlert(String id) {
+  Future<void> removeAlert(String id) async {
     _alerts.removeWhere((a) => a.id == id);
+    await _persistAlerts();
   }
 
-  /// Toggle alert enabled status
-  void toggleAlert(String id) {
+  Future<void> toggleAlert(String id) async {
     final index = _alerts.indexWhere((a) => a.id == id);
     if (index >= 0) {
       _alerts[index] = _alerts[index].copyWith(enabled: !_alerts[index].enabled);
+      await _persistAlerts();
     }
   }
 
@@ -38,7 +49,7 @@ class NotificationService {
   /// Returns triggered notifications.
   List<AppNotification> checkAlerts({
     required PortfolioSummary summary,
-    required Map<String, double> priceChanges, // goldTypeId -> change amount
+    required Map<String, double> priceChanges,
   }) {
     final triggered = <AppNotification>[];
 
@@ -51,7 +62,6 @@ class NotificationService {
 
       switch (alert.type) {
         case PriceAlertType.breakeven:
-          // Check if just crossed breakeven
           if (summary.totalProfitLoss >= 0 && summary.totalProfitLoss < 100000) {
             shouldTrigger = true;
             title = 'Tin vui: Bạn sắp nhìn thấy bờ';
@@ -81,8 +91,6 @@ class NotificationService {
           if (alert.goldTypeId != null &&
               alert.targetPrice != null &&
               priceChanges.containsKey(alert.goldTypeId)) {
-            final currentPrice = priceChanges[alert.goldTypeId]!;
-            // Simplified: trigger when price is near target
             shouldTrigger = true;
             title = 'Giá vàng vừa nhúc nhích';
             body = 'Ví bạn cũng hồi hộp theo.';
@@ -112,7 +120,6 @@ class NotificationService {
       }
     }
 
-    // Keep only last 50 notifications
     if (_notifications.length > 50) {
       _notifications.removeRange(50, _notifications.length);
     }
@@ -120,17 +127,23 @@ class NotificationService {
     return triggered;
   }
 
-  /// Clear all notifications
   void clearNotifications() {
     _notifications.clear();
   }
 
-  /// Mark notification as read
   void markAsRead(String id) {
     final index = _notifications.indexWhere((n) => n.id == id);
     if (index >= 0) {
       _notifications[index] = _notifications[index].copyWith(isRead: true);
     }
+  }
+
+  Future<void> _persistAlerts() async {
+    await StorageService.writeMapList(
+      StorageService.alerts,
+      _alerts.map((a) => a.toMap()),
+      keyOf: (m) => m['id'] as String,
+    );
   }
 
   String _formatVnd(double value) {
