@@ -96,7 +96,10 @@ class _PriceTableScreenState extends State<PriceTableScreen> {
         break;
       case PriceSourceStatus.error:
         statusColor = AppColors.loss;
-        statusText = 'Lỗi tải giá';
+        // Show real error để debug — nếu quá dài UI cắt.
+        statusText = store.priceStatusMessage.isEmpty
+            ? 'Lỗi tải giá'
+            : 'Lỗi: ${store.priceStatusMessage}';
         break;
       case PriceSourceStatus.unavailable:
         statusColor = AppColors.neutral;
