@@ -20,11 +20,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: subosito/flutter-action@v2
+      - uses: subosito/flutter-action@v2.19.0
         with:
           flutter-version: ${{ env.FLUTTER_VERSION }}
           channel: ${{ env.FLUTTER_CHANNEL }}
           cache: true
+
+      - name: Diagnostic — flutter doctor
+        run: flutter doctor -v
 
       - run: flutter pub get
 
@@ -37,11 +40,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: subosito/flutter-action@v2
+      - uses: subosito/flutter-action@v2.19.0
         with:
           flutter-version: ${{ env.FLUTTER_VERSION }}
           channel: ${{ env.FLUTTER_CHANNEL }}
           cache: true
+
+      - name: Diagnostic — flutter doctor
+        run: flutter doctor -v
 
       - run: flutter pub get
       - run: flutter test
@@ -53,11 +59,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: subosito/flutter-action@v2
+      - uses: subosito/flutter-action@v2.19.0
         with:
           flutter-version: ${{ env.FLUTTER_VERSION }}
           channel: ${{ env.FLUTTER_CHANNEL }}
           cache: true
+
+      - name: Diagnostic — flutter doctor
+        run: flutter doctor -v
 
       - run: flutter pub get
       - run: flutter build web --release --no-wasm-dry-run
@@ -93,11 +102,14 @@ jobs:
           distribution: 'temurin'
           java-version: ${{ env.JAVA_VERSION }}
 
-      - uses: subosito/flutter-action@v2
+      - uses: subosito/flutter-action@v2.19.0
         with:
           flutter-version: ${{ env.FLUTTER_VERSION }}
           channel: ${{ env.FLUTTER_CHANNEL }}
           cache: true
+
+      - name: Diagnostic — flutter doctor
+        run: flutter doctor -v
 
       - name: Cache Gradle
         uses: actions/cache@v4
@@ -141,11 +153,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: subosito/flutter-action@v2
+      - uses: subosito/flutter-action@v2.19.0
         with:
           flutter-version: ${{ env.FLUTTER_VERSION }}
           channel: ${{ env.FLUTTER_CHANNEL }}
           cache: true
+
+      - name: Diagnostic — flutter doctor
+        run: flutter doctor -v
 
       - run: flutter pub get
 
