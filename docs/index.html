@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lỗ - Chính sách bảo mật</title>
+<style>
+  body { font-family: -apple-system, Segoe UI, Roboto, sans-serif; max-width: 720px; margin: 40px auto; padding: 0 20px; color: #222; line-height: 1.6; background: #fafafa; }
+  h1 { color: #C9A227; }
+  h2 { color: #333; margin-top: 32px; }
+  a { color: #C9A227; }
+  .updated { color: #666; font-size: 14px; margin-top: -8px; }
+  ul { padding-left: 20px; }
+</style>
+</head>
+<body>
+<h1>Lỗ — Chính sách bảo mật</h1>
+<p class="updated">Cập nhật lần cuối: 2026-07-07</p>
+
+<p>App "Lỗ" (sau đây gọi là "App") là công cụ theo dõi lãi/lỗ đầu tư vàng dành cho người dùng Việt Nam.</p>
+
+<h2>1. Dữ liệu chúng tôi thu thập</h2>
+<p>App được thiết kế theo nguyên tắc <strong>local-first</strong>. Toàn bộ dữ liệu người dùng (danh mục vàng, giá mua, ghi chú) được lưu <strong>trên thiết bị của bạn</strong> thông qua Hive database. Chúng tôi không thu thập dữ liệu cá nhân này lên server nếu bạn không chủ động bật tính năng đồng bộ.</p>
+
+<ul>
+  <li><strong>Danh mục vàng</strong>: giữ trên thiết bị.</li>
+  <li><strong>Số điện thoại + mật khẩu</strong>: chỉ khi bạn kích hoạt "Đồng bộ dữ liệu" — dùng để định danh tài khoản, hash trước khi gửi.</li>
+  <li><strong>Giá vàng</strong>: fetch công khai từ SJC/DOJI qua proxy máy chủ, không gắn với người dùng cụ thể.</li>
+</ul>
+
+<h2>2. Dữ liệu được gửi tới bên thứ ba</h2>
+<p>App sử dụng các dịch vụ sau và có thể chia sẻ dữ liệu tối thiểu cần thiết:</p>
+<ul>
+  <li><strong>Cloudflare Worker</strong>: proxy giá vàng công khai (không nhận dữ liệu cá nhân).</li>
+  <li><strong>Google Play Services / Apple App Store</strong>: dữ liệu cài đặt và crash reports do OS quản lý.</li>
+</ul>
+
+<h2>3. Quyền truy cập thiết bị</h2>
+<ul>
+  <li><strong>Internet</strong>: fetch giá vàng thời gian thực.</li>
+  <li><strong>Lưu trữ</strong>: lưu database Hive, ảnh hoá đơn (tuỳ chọn).</li>
+  <li><strong>Không</strong> đọc danh bạ, vị trí, camera nếu bạn không chủ động chọn tính năng đó.</li>
+</ul>
+
+<h2>4. Xoá dữ liệu</h2>
+<p>Bạn có thể xoá toàn bộ dữ liệu bằng cách gỡ App khỏi thiết bị. Nếu đã kích hoạt đồng bộ, gửi email tới địa chỉ dưới đây để yêu cầu xoá tài khoản trên server.</p>
+
+<h2>5. Từ chối trách nhiệm</h2>
+<p>Thông tin giá vàng và tính toán lãi/lỗ trong App <strong>chỉ mang tính tham khảo</strong>, không phải khuyến nghị mua/bán. Người dùng chịu trách nhiệm về quyết định đầu tư của mình.</p>
+
+<h2>6. Thay đổi chính sách</h2>
+<p>Chúng tôi có thể cập nhật chính sách này. Phiên bản mới nhất luôn có tại URL này.</p>
+
+<h2>7. Liên hệ</h2>
+<p>Mọi thắc mắc, gửi email tới: <a href="mailto:ttc99x@gmail.com">ttc99x@gmail.com</a></p>
+
+<hr>
+<p style="font-size: 13px; color: #999;">Mã nguồn App công khai tại: <a href="https://github.com/cuongtechnology/LoGold">github.com/cuongtechnology/LoGold</a></p>
+</body>
+</html>

@@ -21,8 +21,10 @@ workflows:
     environment:
       flutter: 3.35.4
       java: 17
+      groups:
+        - android_release  # Chứa CM_KEYSTORE_B64, CM_KEYSTORE_PASSWORD, CM_KEY_ALIAS, CM_KEY_PASSWORD
       vars:
-        PACKAGE_NAME: "com.example.lo"
+        PACKAGE_NAME: "vn.lo.app"
 
     triggering:
       events:
@@ -63,10 +65,25 @@ workflows:
         script: |
           flutter build apk --debug
 
-      - name: Build APK release (unsigned)
+      # Setup release signing nếu có secret CM_KEYSTORE_B64 trong env.
+      # Config secret ở Codemagic UI: Teams → Environment variables → group `android_release`.
+      - name: Setup Android signing
         script: |
-          # Khi có keystore, thay bằng flutter build apk --release
-          # sau khi wire signingConfig từ env vars.
+          if [ -n "$CM_KEYSTORE_B64" ]; then
+            echo "$CM_KEYSTORE_B64" | base64 -d > $CM_BUILD_DIR/android/app/lo-release.jks
+            cat > $CM_BUILD_DIR/android/key.properties <<EOF
+          storeFile=lo-release.jks
+          storePassword=$CM_KEYSTORE_PASSWORD
+          keyAlias=$CM_KEY_ALIAS
+          keyPassword=$CM_KEY_PASSWORD
+          EOF
+            echo "✓ Signed release keystore ready"
+          else
+            echo "⚠ CM_KEYSTORE_B64 empty — release APK sẽ dùng debug key"
+          fi
+
+      - name: Build APK release
+        script: |
           flutter build apk --release
 
     artifacts:

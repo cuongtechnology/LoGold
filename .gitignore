@@ -44,6 +44,12 @@ app.*.map.json
 /android/app/profile
 /android/app/release
 
+# Android signing secrets (CI decodes from GitHub/Codemagic secrets)
+android/key.properties
+android/app/lo-release.jks
+android/app/*.jks
+android/app/*.keystore
+
 # Hosting server files (aaPanel/宝塔) — không thuộc Flutter project
 /.htaccess
 /.user.ini
