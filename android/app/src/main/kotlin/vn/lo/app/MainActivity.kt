@@ -1,4 +1,4 @@
-package com.goldlottracker.tracker
+package vn.lo.app
 
 import io.flutter.embedding.android.FlutterActivity
 
