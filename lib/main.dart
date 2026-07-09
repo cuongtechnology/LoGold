@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -5,20 +7,26 @@ import 'package:google_fonts/google_fonts.dart';
 
 import 'api/cloudflare_worker_price_adapter.dart';
 import 'api/sjc_price_adapter.dart';
+import 'api/vang_today_price_adapter.dart';
 import 'constants/app_constants.dart';
+import 'services/ad_service.dart';
 import 'services/price_service.dart';
+import 'services/push_notification_service.dart';
 import 'services/storage_service.dart';
 import 'stores/app_store.dart';
 import 'screens/onboarding_screen.dart';
+import 'screens/lock_screen.dart';
 import 'screens/home_screen.dart';
 import 'screens/portfolio_screen.dart';
 import 'screens/price_table_screen.dart';
 import 'screens/top_lo_screen.dart';
 import 'screens/settings_screen.dart';
 
-/// URL của CF Worker proxy giá vàng. Truyền lúc build:
-///   flutter build web --dart-define=LO_WORKER_URL=https://lo-gold-proxy.xxx.workers.dev
-/// Nếu rỗng → web dùng Mock, mobile dùng SjcPriceAdapter fetch trực tiếp.
+/// URL của CF Worker (đăng ký push token + KV cache dự phòng). Truyền lúc build:
+///   flutter build apk --dart-define=LO_WORKER_URL=https://lo-gold-proxy.xxx.workers.dev
+/// Rỗng → app vẫn chạy bình thường, chỉ tự tắt tính năng đăng ký push token
+/// (xem `_configurePriceAdapters` — worker KHÔNG tự động thành nguồn giá
+/// chính, `VangTodayPriceAdapter` mới là nguồn giá mặc định).
 const _kWorkerUrl = String.fromEnvironment('LO_WORKER_URL', defaultValue: '');
 
 Future<void> main() async {
@@ -26,26 +34,35 @@ Future<void> main() async {
   await StorageService.init();
   _configurePriceAdapters();
   runApp(const LoApp());
+
+  // Không chặn màn hình đầu tiên vẽ — ads/push đều tự no-op êm nếu chưa
+  // cấu hình (chưa có AdMob App ID thật / chưa có Firebase project).
+  unawaited(AdService.instance.init());
+  unawaited(
+    PushNotificationService.instance.init(
+      registerEndpoint: _kWorkerUrl.isEmpty ? '' : '$_kWorkerUrl/register-token',
+    ),
+  );
 }
 
-/// Ưu tiên adapter theo platform + config:
-/// 1. Có `LO_WORKER_URL` → dùng CF Worker (cả web + mobile hưởng cache chung).
-/// 2. Mobile không có Worker URL → `SjcPriceAdapter` fetch trực tiếp.
-/// 3. Web không có Worker URL → giữ Mock (CORS chặn fetch trực tiếp).
+/// `VangTodayPriceAdapter` luôn là nguồn giá mặc định (API miễn phí, bật
+/// CORS, chạy được cả web lẫn mobile không cần proxy) — set `LO_WORKER_URL`
+/// KHÔNG đổi nguồn giá, chỉ bật tính năng push (xem `main()`).
+/// `SjcPriceAdapter`/`CloudflareWorkerPriceAdapter` vẫn đăng ký làm nguồn dự
+/// phòng (mobile) nếu sau này cần chuyển tay qua `PriceService.setActiveAdapter`.
 void _configurePriceAdapters() {
   final price = PriceService.instance;
 
-  if (_kWorkerUrl.isNotEmpty) {
-    final worker = CloudflareWorkerPriceAdapter(baseUrl: _kWorkerUrl);
-    price.registerAdapter(worker);
-    price.setActiveAdapter(worker.sourceKey);
-    return;
-  }
+  final vangToday = VangTodayPriceAdapter();
+  price.registerAdapter(vangToday);
+  price.setActiveAdapter(vangToday.sourceKey);
 
   if (!kIsWeb) {
-    final sjc = SjcPriceAdapter();
-    price.registerAdapter(sjc);
-    price.setActiveAdapter(sjc.sourceKey);
+    price.registerAdapter(SjcPriceAdapter());
+  }
+
+  if (_kWorkerUrl.isNotEmpty) {
+    price.registerAdapter(CloudflareWorkerPriceAdapter(baseUrl: _kWorkerUrl));
   }
 }
 
@@ -56,17 +73,11 @@ class LoApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return ChangeNotifierProvider(
       create: (_) => AppStore()..init(),
-      child: Consumer<AppStore>(
-        builder: (context, store, _) {
-          return MaterialApp(
-            title: AppConstants.appName,
-            debugShowCheckedModeBanner: false,
-            theme: _buildDarkTheme(),
-            home: store.isOnboarded
-                ? const MainShell()
-                : const OnboardingScreen(),
-          );
-        },
+      child: MaterialApp(
+        title: AppConstants.appName,
+        debugShowCheckedModeBanner: false,
+        theme: _buildDarkTheme(),
+        home: const _AppGate(),
       ),
     );
   }
@@ -127,6 +138,53 @@ class LoApp extends StatelessWidget {
       ),
       dividerColor: AppColors.divider,
     );
+  }
+}
+
+/// Gate màn hình đầu vào: Onboarding → (khoá PIN nếu bật) → MainShell.
+/// Tự khoá lại mỗi khi app quay về từ nền (không chỉ lúc cold start) — bảo
+/// vệ thật sự chứ không phải chỉ hỏi PIN 1 lần lúc mở app.
+class _AppGate extends StatefulWidget {
+  const _AppGate();
+
+  @override
+  State<_AppGate> createState() => _AppGateState();
+}
+
+class _AppGateState extends State<_AppGate> with WidgetsBindingObserver {
+  bool _unlocked = false;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.paused) {
+      final store = context.read<AppStore>();
+      if (store.pinEnabled && _unlocked) {
+        setState(() => _unlocked = false);
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final store = context.watch<AppStore>();
+
+    if (!store.isOnboarded) return const OnboardingScreen();
+    if (store.pinEnabled && !_unlocked) {
+      return LockScreen(onUnlocked: () => setState(() => _unlocked = true));
+    }
+    return const MainShell();
   }
 }
 

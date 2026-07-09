@@ -74,13 +74,13 @@ class GoldUnits {
   /// e.g. if user bought 5 chi at 12,000,000/chỉ,
   /// price per luong = 12,000,000 * 10 = 120,000,000/lượng
   static double pricePerLuong(double pricePerUnit, String unit) {
-    final perLuong = toLuong(1, unit);
-    return pricePerUnit * perLuong;
+    final unitsPerLuong = fromLuong(1, unit);
+    return pricePerUnit * unitsPerLuong;
   }
 
   /// Calculate price per a specific unit from price per luong.
   static double priceFromLuong(double pricePerLuong, String unit) {
-    final perLuong = toLuong(1, unit);
-    return pricePerLuong / perLuong;
+    final unitsPerLuong = fromLuong(1, unit);
+    return pricePerLuong / unitsPerLuong;
   }
 }

@@ -1,11 +1,18 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:provider/provider.dart';
+import 'package:share_plus/share_plus.dart';
 
 import '../constants/app_constants.dart';
 import '../stores/app_store.dart';
 import '../services/export_service.dart';
+import '../services/review_service.dart';
 import '../components/ui_components.dart';
+import 'author_info_screen.dart';
+import 'price_alert_screen.dart';
 
 /// Settings screen - app settings, privacy, export, and about.
 class SettingsScreen extends StatefulWidget {
@@ -30,6 +37,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              _buildActionTile(
+                icon: Icons.person_outline,
+                title: 'Thông tin tác giả',
+                subtitle: 'Tạ Tiến Cường - liên hệ & dịch vụ',
+                onTap: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const AuthorInfoScreen()),
+                ),
+              ),
+              const SizedBox(height: 16),
+
               _buildSectionTitle('Bảo mật'),
               _buildToggleTile(
                 icon: Icons.visibility_off,
@@ -47,19 +65,21 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ),
               const SizedBox(height: 16),
 
-              _buildSectionTitle('Hiển thị'),
-              _buildToggleTile(
-                icon: Icons.dark_mode,
-                title: 'Chế độ tối',
-                subtitle: 'Giao diện tối vàng-đen',
-                value: store.isDarkMode,
-                onChanged: (_) => store.toggleDarkMode(),
+              _buildSectionTitle('Thông báo'),
+              _buildActionTile(
+                icon: Icons.notifications_active_outlined,
+                title: 'Cảnh báo giá',
+                subtitle: 'Đặt ngưỡng lãi/lỗ hoặc giá để nhận thông báo',
+                onTap: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const PriceAlertScreen()),
+                ),
               ),
               _buildInfoTile(
-                icon: Icons.monetization_on,
-                title: 'Loại vàng ưu tiên',
-                subtitle: _getGoldTypeName(store.preferredGoldTypeId, store),
-                onTap: () => _showGoldTypePicker(context, store),
+                icon: Icons.campaign_outlined,
+                title: 'Thông báo đẩy',
+                subtitle: store.pushNotificationStatusMessage,
+                onTap: () => _showPushInfoDialog(context, store),
               ),
               const SizedBox(height: 16),
 
@@ -76,17 +96,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 subtitle: 'Xuất dữ liệu ra file JSON (backup)',
                 onTap: () => _exportData(context, 'json'),
               ),
-              _buildActionTile(
-                icon: Icons.delete_forever,
-                title: 'Xóa tất cả dữ liệu',
-                subtitle: 'Xóa toàn bộ danh mục và cài đặt',
-                onTap: () => _showClearDataDialog(context),
-                isDanger: true,
-              ),
-              const SizedBox(height: 16),
-
-              _buildSectionTitle('Gói dịch vụ'),
-              _buildPlanCard(store),
               const SizedBox(height: 16),
 
               _buildSectionTitle('Thông tin & Pháp lý'),
@@ -107,6 +116,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 title: 'Về ứng dụng Lỗ',
                 subtitle: 'Phiên bản 1.0.0 - Gold Loss Tracker',
                 onTap: () => _showAboutDialog(context),
+              ),
+              _buildActionTile(
+                icon: Icons.thumb_up_outlined,
+                title: 'Đánh giá ứng dụng',
+                subtitle: 'Ủng hộ Lỗ nhiều chưa? trên Play Store',
+                onTap: () => ReviewService.instance.openStoreListing(),
               ),
               const SizedBox(height: 16),
 
@@ -263,108 +278,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
-  Widget _buildPlanCard(AppStore store) {
-    final isPro = AppConstants.isPro;
-    final activeCount = store.activeHoldings.length;
-    final maxHoldings = AppConstants.freeTierMaxHoldings;
-
-    return AppCard(
-      color: isPro ? const Color(0xFF2A2520) : AppColors.bgCard,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Icon(
-                isPro ? Icons.workspace_premium : Icons.free_breakfast,
-                color: AppColors.gold,
-                size: 28,
-              ),
-              const SizedBox(width: 12),
-              Text(
-                isPro ? 'Lỗ Pro' : 'Lỗ Free',
-                style: const TextStyle(
-                  color: AppColors.gold,
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-              const Spacer(),
-              if (isPro)
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                  decoration: BoxDecoration(
-                    color: AppColors.gold,
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: const Text(
-                    'PRO',
-                    style: TextStyle(
-                      color: AppColors.bgPrimary,
-                      fontSize: 10,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                ),
-            ],
-          ),
-          const SizedBox(height: 16),
-          if (!isPro) ...[
-            _planFeature('Tối đa $maxHoldings vị thế vàng', activeCount < maxHoldings),
-            const _PlanFeatureItem(text: 'Theo dõi lãi/lỗ realtime', isIncluded: true),
-            const _PlanFeatureItem(text: 'Meme an ủi', isIncluded: true),
-            const _PlanFeatureItem(text: 'Cảnh báo giá cơ bản', isIncluded: true),
-            const _PlanFeatureItem(text: 'Không giới hạn vị thế', isIncluded: false),
-            const _PlanFeatureItem(text: 'Biểu đồ nâng cao', isIncluded: false),
-            const SizedBox(height: 12),
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton(
-                onPressed: () => _showUpgradeDialog(context),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: AppColors.gold,
-                  foregroundColor: AppColors.bgPrimary,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                ),
-                child: const Text('Nâng cấp lên Pro'),
-              ),
-            ),
-          ] else ...[
-            const _PlanFeatureItem(text: 'Không giới hạn vị thế vàng', isIncluded: true),
-            const _PlanFeatureItem(text: 'Tất cả tính năng Pro', isIncluded: true),
-            const _PlanFeatureItem(text: 'Biểu đồ nâng cao', isIncluded: true),
-            const _PlanFeatureItem(text: 'Xuất dữ liệu không giới hạn', isIncluded: true),
-          ],
-        ],
-      ),
-    );
-  }
-
-  Widget _planFeature(String text, bool isIncluded) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 6),
-      child: Row(
-        children: [
-          Icon(
-            isIncluded ? Icons.check_circle : Icons.remove_circle_outline,
-            color: isIncluded ? AppColors.profit : AppColors.textHint,
-            size: 18,
-          ),
-          const SizedBox(width: 8),
-          Text(
-            text,
-            style: TextStyle(
-              color: isIncluded ? AppColors.textPrimary : AppColors.textHint,
-              fontSize: 14,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
   Widget _buildDisclaimerBar() {
     return Container(
       width: double.infinity,
@@ -395,60 +308,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
-  String _getGoldTypeName(String id, AppStore store) {
-    final gt = store.getGoldType(id);
-    return gt?.displayName ?? id;
-  }
-
-  void _showGoldTypePicker(BuildContext context, AppStore store) {
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: AppColors.bgCard,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (ctx) {
-        return SafeArea(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Padding(
-                padding: EdgeInsets.all(16),
-                child: Text(
-                  'Chọn loại vàng ưu tiên',
-                  style: TextStyle(
-                    color: AppColors.textPrimary,
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ),
-              ...store.goldTypes.map((gt) {
-                final selected = gt.id == store.preferredGoldTypeId;
-                return ListTile(
-                  leading: Icon(
-                    selected ? Icons.radio_button_checked : Icons.radio_button_off,
-                    color: AppColors.gold,
-                  ),
-                  title: Text(
-                    gt.displayName,
-                    style: TextStyle(
-                      color: selected ? AppColors.gold : AppColors.textPrimary,
-                    ),
-                  ),
-                  onTap: () {
-                    store.setPreferredGoldType(gt.id);
-                    Navigator.pop(ctx);
-                  },
-                );
-              }),
-              const SizedBox(height: 8),
-            ],
-          ),
-        );
-      },
-    );
-  }
 
   void _handlePinToggle(bool enable, AppStore store) {
     if (enable) {
@@ -565,10 +424,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
-  void _exportData(BuildContext context, String format) {
+  Future<void> _exportData(BuildContext context, String format) async {
     final export = ExportService.instance;
-    String data;
-    String fileName;
+    final String data;
+    final String fileName;
 
     if (format == 'csv') {
       data = export.exportToCSV();
@@ -578,48 +437,54 @@ class _SettingsScreenState extends State<SettingsScreen> {
       fileName = 'lo_backup.json';
     }
 
-    Clipboard.setData(ClipboardData(text: data));
+    try {
+      final dir = await getTemporaryDirectory();
+      final file = File('${dir.path}/$fileName');
+      await file.writeAsString(data);
 
+      if (!context.mounted) return;
+      await SharePlus.instance.share(
+        ShareParams(
+          files: [XFile(file.path)],
+          text: 'Xuất dữ liệu từ Lỗ nhiều chưa?',
+        ),
+      );
+    } catch (e) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Xuất file thất bại: $e'),
+          backgroundColor: AppColors.loss,
+        ),
+      );
+    }
+  }
+
+  void _showPushInfoDialog(BuildContext context, AppStore store) {
     showDialog(
       context: context,
       builder: (ctx) {
         return AlertDialog(
           backgroundColor: AppColors.bgCard,
-          title: Text(
-            'Xuất $format',
-            style: const TextStyle(color: AppColors.textPrimary),
+          title: const Text(
+            'Thông báo đẩy',
+            style: TextStyle(color: AppColors.gold),
           ),
           content: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Text(
-                'Dữ liệu đã được sao chép vào clipboard!',
-                style: TextStyle(color: AppColors.profit, fontSize: 14),
-              ),
-              const SizedBox(height: 12),
               Text(
-                'File: $fileName (${data.length} ký tự)',
-                style: const TextStyle(color: AppColors.textSecondary, fontSize: 13),
+                'Trạng thái: ${store.pushNotificationStatusMessage}',
+                style: const TextStyle(color: AppColors.textPrimary, fontSize: 14),
               ),
               const SizedBox(height: 12),
-              Container(
-                constraints: const BoxConstraints(maxHeight: 200),
-                padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(
-                  color: AppColors.bgPrimary,
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: SingleChildScrollView(
-                  child: SelectableText(
-                    data,
-                    style: const TextStyle(
-                      color: AppColors.textSecondary,
-                      fontSize: 11,
-                      fontFamily: 'monospace',
-                    ),
-                  ),
-                ),
+              const Text(
+                'Khi giá SJC biến động mạnh, Lỗ nhiều chưa? có thể gửi thông báo '
+                'đẩy tới điện thoại kể cả khi bạn không mở app. Nếu trạng thái '
+                'trên báo chưa hoạt động, kiểm tra lại quyền thông báo cho app '
+                'trong Cài đặt hệ thống của điện thoại.',
+                style: TextStyle(color: AppColors.textSecondary, height: 1.5),
               ),
             ],
           ),
@@ -630,49 +495,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 backgroundColor: AppColors.gold,
                 foregroundColor: AppColors.bgPrimary,
               ),
-              child: const Text('Đóng'),
-            ),
-          ],
-        );
-      },
-    );
-  }
-
-  void _showClearDataDialog(BuildContext context) {
-    showDialog(
-      context: context,
-      builder: (ctx) {
-        return AlertDialog(
-          backgroundColor: AppColors.bgCard,
-          title: const Text(
-            'Xóa tất cả dữ liệu?',
-            style: TextStyle(color: AppColors.loss),
-          ),
-          content: const Text(
-            'Tất cả danh mục vàng, cài đặt và cảnh báo sẽ bị xóa vĩnh viễn. '
-            'Hành động này không thể hoàn tác.',
-            style: TextStyle(color: AppColors.textSecondary),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(ctx),
-              child: const Text('Hủy', style: TextStyle(color: AppColors.textSecondary)),
-            ),
-            ElevatedButton(
-              onPressed: () {
-                Navigator.pop(ctx);
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text('Chức năng xóa dữ liệu sẽ khả dụng trong phiên bản tới'),
-                    backgroundColor: AppColors.warning,
-                  ),
-                );
-              },
-              style: ElevatedButton.styleFrom(
-                backgroundColor: AppColors.loss,
-                foregroundColor: Colors.white,
-              ),
-              child: const Text('Xóa tất cả'),
+              child: const Text('Đã hiểu'),
             ),
           ],
         );
@@ -728,17 +551,38 @@ class _SettingsScreenState extends State<SettingsScreen> {
             'Chính sách bảo mật',
             style: TextStyle(color: AppColors.gold),
           ),
-          content: const SingleChildScrollView(
-            child: Text(
-              'Ứng dụng "Lỗ" (Lỗ nhiều chưa?) tôn trọng quyền riêng tư của bạn:\n\n'
-              '• Tất cả dữ liệu được lưu trên thiết bị của bạn\n'
-              '• Không có thông tin nào được gửi lên máy chủ\n'
-              '• Không thu thập dữ liệu cá nhân\n'
-              '• Không theo dõi hoạt động người dùng\n'
-              '• Bạn có thể xóa dữ liệu bất cứ lúc nào\n\n'
-              'Mã PIN (nếu bật) chỉ lưu cục bộ trên thiết bị. '
-              'Chế độ ẩn số giúp che giấu thông tin khi người khác nhìn màn hình.',
-              style: TextStyle(color: AppColors.textSecondary, height: 1.5),
+          content: SingleChildScrollView(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Text(
+                  'Ứng dụng "Lỗ nhiều chưa?" tôn trọng quyền riêng tư của bạn:\n\n'
+                  '• Danh mục vàng, giá mua, ghi chú, mã PIN (nếu bật) chỉ lưu '
+                  'cục bộ trên thiết bị — không tài khoản, không đồng bộ lên '
+                  'server nào của chúng tôi\n'
+                  '• App hiển thị quảng cáo qua Google AdMob — AdMob có thể '
+                  'thu thập Advertising ID và dữ liệu thiết bị để cá nhân hoá '
+                  'quảng cáo\n'
+                  '• App gửi thông báo đẩy qua Firebase Cloud Messaging — cần '
+                  'gửi 1 mã định danh thiết bị (không phải thông tin cá nhân) '
+                  'để biết gửi thông báo tới đúng máy\n'
+                  '• Giá vàng lấy từ API công khai, không gắn với thông tin cá '
+                  'nhân nào\n'
+                  '• Gỡ app khỏi máy sẽ xoá toàn bộ dữ liệu cục bộ ngay lập tức\n\n'
+                  'Chi tiết đầy đủ tại:',
+                  style: TextStyle(color: AppColors.textSecondary, height: 1.5),
+                ),
+                const SizedBox(height: 4),
+                SelectableText(
+                  'https://cuongtechnology.github.io/LoGold/',
+                  style: const TextStyle(
+                    color: AppColors.gold,
+                    height: 1.5,
+                    decoration: TextDecoration.underline,
+                  ),
+                ),
+              ],
             ),
           ),
           actions: [
@@ -830,89 +674,4 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
-  void _showUpgradeDialog(BuildContext context) {
-    showDialog(
-      context: context,
-      builder: (ctx) {
-        return AlertDialog(
-          backgroundColor: AppColors.bgCard,
-          title: const Text(
-            'Nâng cấp lên Lỗ Pro',
-            style: TextStyle(color: AppColors.gold),
-          ),
-          content: const Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'Với Lỗ Pro bạn sẽ có:',
-                style: TextStyle(color: AppColors.textPrimary, fontSize: 15),
-              ),
-              SizedBox(height: 12),
-              Text(
-                '• Không giới hạn vị thế vàng\n'
-                '• Biểu đồ phân tích nâng cao\n'
-                '• Cảnh báo giá không giới hạn\n'
-                '• Xuất dữ liệu không giới hạn\n'
-                '• Hỗ trợ ưu tiên\n'
-                '• Không quảng cáo',
-                style: TextStyle(color: AppColors.textSecondary, height: 1.6),
-              ),
-              SizedBox(height: 12),
-              Text(
-                'Tính năng nâng cấp sẽ khả dụng trong phiên bản tới.',
-                style: TextStyle(color: AppColors.textHint, fontSize: 12),
-              ),
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(ctx),
-              child: const Text('Để sau', style: TextStyle(color: AppColors.textSecondary)),
-            ),
-            ElevatedButton(
-              onPressed: () => Navigator.pop(ctx),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: AppColors.gold,
-                foregroundColor: AppColors.bgPrimary,
-              ),
-              child: const Text('Quan tâm'),
-            ),
-          ],
-        );
-      },
-    );
-  }
-}
-
-/// Plan feature item widget
-class _PlanFeatureItem extends StatelessWidget {
-  final String text;
-  final bool isIncluded;
-
-  const _PlanFeatureItem({required this.text, required this.isIncluded});
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 6),
-      child: Row(
-        children: [
-          Icon(
-            isIncluded ? Icons.check_circle : Icons.remove_circle_outline,
-            color: isIncluded ? AppColors.profit : AppColors.textHint,
-            size: 18,
-          ),
-          const SizedBox(width: 8),
-          Text(
-            text,
-            style: TextStyle(
-              color: isIncluded ? AppColors.textPrimary : AppColors.textHint,
-              fontSize: 14,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
 }

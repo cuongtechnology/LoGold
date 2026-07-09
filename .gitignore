@@ -43,12 +43,23 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+android/build/
+
+# Node deps cho Cloudflare Worker (worker/) — cài lại bằng `npm install`.
+worker/node_modules/
 
 # Android signing secrets (CI decodes from GitHub/Codemagic secrets)
 android/key.properties
 android/app/lo-release.jks
 android/app/*.jks
 android/app/*.keystore
+
+# Firebase config/secrets — google-services.json là config client (ít nhạy
+# cảm hơn nhưng vẫn nên tách theo môi trường), *firebase-adminsdk*.json là
+# SERVICE ACCOUNT PRIVATE KEY thật (quyền admin) — TUYỆT ĐỐI không commit.
+android/app/google-services.json
+ios/Runner/GoogleService-Info.plist
+**/*firebase-adminsdk*.json
 
 # Hosting server files (aaPanel/宝塔) — không thuộc Flutter project
 /.htaccess

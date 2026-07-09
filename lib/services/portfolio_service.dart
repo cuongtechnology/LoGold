@@ -48,6 +48,16 @@ class PortfolioService {
         await _persistGoldTypes();
       } else {
         _goldTypes.addAll(stored);
+        // Migration: user đã cài từ trước có thể thiếu loại vàng mặc định
+        // mới thêm sau này — bổ sung, không đụng tới custom type đã có.
+        final existingIds = stored.map((g) => g.id).toSet();
+        final missingDefaults = GoldType.defaults
+            .where((g) => !existingIds.contains(g.id))
+            .toList();
+        if (missingDefaults.isNotEmpty) {
+          _goldTypes.addAll(missingDefaults);
+          await _persistGoldTypes();
+        }
       }
     }
   }

@@ -39,7 +39,10 @@ class GoldType {
     );
   }
 
-  /// Predefined gold types in the Vietnamese market.
+  /// Predefined gold types in the Vietnamese market — khớp các mã loại vàng
+  /// domestic mà `VangTodayPriceAdapter` fetch được (xem mapping trong
+  /// `lib/api/vang_today_price_adapter.dart`). Không gồm XAUUSD (giá vàng thế
+  /// giới, USD/oz) vì khác hệ đơn vị VND/lượng mà app dùng để tính lãi/lỗ.
   static List<GoldType> get defaults => [
         GoldType(
           id: 'sjc',
@@ -51,23 +54,72 @@ class GoldType {
         GoldType(
           id: 'ring_9999',
           name: 'ring_9999',
-          displayName: 'Vàng nhẫn 9999',
+          displayName: 'Nhẫn SJC 9999',
           defaultUnit: 'chi',
           sourceKey: 'ring_9999',
         ),
         GoldType(
           id: 'gold_9999',
           name: 'gold_9999',
-          displayName: 'Vàng 9999 khác',
+          displayName: 'Bảo Tín 9999',
           defaultUnit: 'luong',
           sourceKey: 'gold_9999',
         ),
         GoldType(
           id: 'jewelry',
           name: 'jewelry',
-          displayName: 'Vàng trang sức',
+          displayName: 'DOJI Nữ trang',
           defaultUnit: 'gram',
           sourceKey: 'jewelry',
+        ),
+        GoldType(
+          id: 'viettin_sjc',
+          name: 'viettin_sjc',
+          displayName: 'Viettin SJC',
+          defaultUnit: 'luong',
+          sourceKey: 'viettin_sjc',
+        ),
+        GoldType(
+          id: 'pnj_hanoi',
+          name: 'pnj_hanoi',
+          displayName: 'PNJ Hà Nội',
+          defaultUnit: 'luong',
+          sourceKey: 'pnj_hanoi',
+        ),
+        GoldType(
+          id: 'pnj_24k',
+          name: 'pnj_24k',
+          displayName: 'PNJ 24K',
+          defaultUnit: 'gram',
+          sourceKey: 'pnj_24k',
+        ),
+        GoldType(
+          id: 'bao_tin_sjc',
+          name: 'bao_tin_sjc',
+          displayName: 'Bảo Tín SJC',
+          defaultUnit: 'luong',
+          sourceKey: 'bao_tin_sjc',
+        ),
+        GoldType(
+          id: 'doji_hanoi',
+          name: 'doji_hanoi',
+          displayName: 'DOJI Hà Nội',
+          defaultUnit: 'luong',
+          sourceKey: 'doji_hanoi',
+        ),
+        GoldType(
+          id: 'doji_hcm',
+          name: 'doji_hcm',
+          displayName: 'DOJI TP.HCM',
+          defaultUnit: 'luong',
+          sourceKey: 'doji_hcm',
+        ),
+        GoldType(
+          id: 'vn_gold_sjc',
+          name: 'vn_gold_sjc',
+          displayName: 'VN Gold SJC',
+          defaultUnit: 'luong',
+          sourceKey: 'vn_gold_sjc',
         ),
       ];
 }

@@ -34,6 +34,21 @@ dependencies:
   # UI
   google_fonts: ^6.2.1
 
+  # Ads
+  google_mobile_ads: ^9.0.0
+
+  # Push notification
+  firebase_core: ^4.11.0
+  firebase_messaging: ^16.4.1
+  flutter_local_notifications: ^22.0.1
+
+  # Xuất file/chia sẻ (Cài đặt → Xuất CSV/JSON)
+  path_provider: ^2.1.5
+  share_plus: ^13.2.0
+
+  # Xin đánh giá app (In-App Review)
+  in_app_review: ^2.0.12
+
 dev_dependencies:
   flutter_test:
     sdk: flutter
@@ -47,6 +62,8 @@ flutter:
   assets:
     - assets/icon/
     - assets/logo.png
+    - assets/author.jpg
+    - assets/data/sjc_history.json
 
 # Cấu hình flutter_launcher_icons.
 # Chạy: dart run flutter_launcher_icons

@@ -113,21 +113,6 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
 
     final store = context.read<AppStore>();
 
-    // Check free tier limit
-    if (store.isFreeTierLimitReached) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            'Bản miễn phí chỉ theo dõi tối đa ${AppConstants.freeTierMaxHoldings} vàng. '
-            'Nâng cấp Pro để thêm không giới hạn.',
-          ),
-          backgroundColor: AppColors.warning,
-          duration: const Duration(seconds: 4),
-        ),
-      );
-      return;
-    }
-
     store.addHolding(
       goldTypeId: _selectedGoldTypeId!,
       quantity: _quantity!,

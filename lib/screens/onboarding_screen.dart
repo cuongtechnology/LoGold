@@ -91,26 +91,13 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
           // App icon area
-          Container(
-            width: 120,
-            height: 120,
-            decoration: BoxDecoration(
-              gradient: const LinearGradient(
-                colors: [AppColors.gold, AppColors.goldDark],
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-              ),
-              borderRadius: BorderRadius.circular(28),
-            ),
-            child: const Center(
-              child: Text(
-                'Lỗ',
-                style: TextStyle(
-                  fontSize: 56,
-                  fontWeight: FontWeight.w900,
-                  color: AppColors.bgPrimary,
-                ),
-              ),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(28),
+            child: Image.asset(
+              'assets/logo.png',
+              width: 120,
+              height: 120,
+              fit: BoxFit.cover,
             ),
           ),
           const SizedBox(height: 40),

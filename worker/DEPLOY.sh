@@ -3,6 +3,16 @@
 # Chạy: cd worker && bash DEPLOY.sh
 #
 # Yêu cầu: node >= 18, tài khoản Cloudflare (free tier OK)
+#
+# Trên máy có trình duyệt: để trống CLOUDFLARE_API_TOKEN, script sẽ chạy
+# `wrangler login` (mở browser).
+#
+# Trên server/sandbox không có trình duyệt (browser không với tới được
+# localhost của server để nhận callback OAuth): tạo API Token tại
+# https://dash.cloudflare.com/profile/api-tokens (template "Edit Cloudflare
+# Workers"), rồi chạy:
+#   export CLOUDFLARE_API_TOKEN=<token>
+#   bash DEPLOY.sh
 
 set -euo pipefail
 
@@ -11,8 +21,12 @@ cd "$(dirname "$0")"
 echo "→ 1. Install dependencies..."
 npm install --no-audit --no-fund
 
-echo "→ 2. Login Cloudflare (mở browser để authorize)..."
-npx wrangler login
+if [[ -n "${CLOUDFLARE_API_TOKEN:-}" ]]; then
+  echo "→ 2. Đã có CLOUDFLARE_API_TOKEN — bỏ qua wrangler login."
+else
+  echo "→ 2. Login Cloudflare (mở browser để authorize)..."
+  npx wrangler login
+fi
 
 echo "→ 3. Tạo KV namespace..."
 KV_OUTPUT=$(npx wrangler kv namespace create LO_PRICE_CACHE 2>&1)

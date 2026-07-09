@@ -10,6 +10,17 @@
  *     chỉ nhận ~288 req/ngày (cron 5 phút). Free tier CF thoải mái.
  *  4. User-Agent + retry giúp bypass Cloudflare challenge trên SJC.
  *
+ * Push notification (giá SJC biến động mạnh):
+ *  - `POST /register-token` / `POST /unregister-token` — app đăng ký/gỡ FCM
+ *    device token, lưu trong `LO_PRICE_CACHE` (key `token:<fcm_token>`).
+ *  - Mỗi lần cron chạy, so giá SJC mới với `last_notified_price:sjc` — lệch
+ *    quá `NOTIFY_THRESHOLD_PERCENT` thì bắn FCM tới toàn bộ token đã đăng ký.
+ *  - Cần 2 secret (không set thì tính năng tự tắt, không lỗi):
+ *      npx wrangler secret put FCM_PROJECT_ID           # project_id trong service account JSON
+ *      npx wrangler secret put FCM_SERVICE_ACCOUNT_JSON # nguyên văn nội dung file JSON service account
+ *    Tạo service account: Firebase Console → Project settings → Service accounts
+ *    → Generate new private key.
+ *
  * Deploy:
  *   cd worker && npm install
  *   npx wrangler kv namespace create LO_PRICE_CACHE     # copy id vào wrangler.toml
@@ -18,8 +29,13 @@
  * Endpoint sau deploy: `https://lo-gold-proxy.<subdomain>.workers.dev/prices`
  */
 
+import { SignJWT, importPKCS8 } from 'jose';
+
 export interface Env {
   LO_PRICE_CACHE: KVNamespace;
+  FCM_PROJECT_ID?: string;
+  FCM_SERVICE_ACCOUNT_JSON?: string;
+  TEST_NOTIFY_TOKEN?: string;
 }
 
 interface GoldPrice {
@@ -41,6 +57,10 @@ const CACHE_TTL_SECONDS = 300; // 5 phút
 const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36';
 const UPSTREAM_TIMEOUT_MS = 12_000;
 
+const TOKEN_PREFIX = 'token:';
+const LAST_NOTIFIED_KEY = 'last_notified_price:sjc';
+const NOTIFY_THRESHOLD_PERCENT = 1.0; // % thay đổi giá SJC để bắn push
+
 // ─── HTTP handler ─────────────────────────────────────────────────────────
 
 export default {
@@ -51,17 +71,26 @@ export default {
     if (request.method === 'OPTIONS') {
       return corsResponse(new Response(null, { status: 204 }));
     }
-    if (request.method !== 'GET') {
-      return corsResponse(new Response('Method not allowed', { status: 405 }));
-    }
 
-    if (url.pathname === '/prices') {
+    if (request.method === 'GET' && url.pathname === '/prices') {
       const bundle = await getCachedOrFresh(env);
       return corsResponse(json(bundle));
     }
 
-    if (url.pathname === '/health') {
+    if (request.method === 'GET' && url.pathname === '/health') {
       return corsResponse(json({ ok: true, cacheKey: CACHE_KEY }));
+    }
+
+    if (request.method === 'POST' && url.pathname === '/register-token') {
+      return corsResponse(await handleRegisterToken(request, env));
+    }
+
+    if (request.method === 'POST' && url.pathname === '/unregister-token') {
+      return corsResponse(await handleUnregisterToken(request, env));
+    }
+
+    if (request.method === 'POST' && url.pathname === '/test-notify') {
+      return corsResponse(await handleTestNotify(request, env));
     }
 
     return corsResponse(new Response('Not found', { status: 404 }));
@@ -69,18 +98,223 @@ export default {
 
   // Cron trigger (cấu hình trong wrangler.toml: `crons = ["*/5 * * * *"]`).
   // Refresh cache đều đặn để user luôn nhận cache hit — không có "cold" request
-  // nào phải chờ upstream 3-5 giây.
+  // nào phải chờ upstream 3-5 giây. Đồng thời kiểm tra biến động giá SJC để
+  // gửi push nếu vượt ngưỡng.
   async scheduled(_event: ScheduledEvent, env: Env): Promise<void> {
     try {
       const bundle = await fetchFresh();
       await env.LO_PRICE_CACHE.put(CACHE_KEY, JSON.stringify(bundle), {
         expirationTtl: CACHE_TTL_SECONDS * 2, // buffer để không hết hạn trong lúc cron chạy
       });
+      await checkPriceSurgeAndNotify(bundle, env);
     } catch (err) {
       console.error('scheduled refresh failed:', err);
     }
   },
 };
+
+// ─── Push notification (đăng ký token + gửi FCM) ─────────────────────────
+
+interface TokenRequestBody {
+  token?: string;
+  platform?: string;
+}
+
+async function handleRegisterToken(request: Request, env: Env): Promise<Response> {
+  let body: TokenRequestBody;
+  try {
+    body = await request.json();
+  } catch {
+    return new Response('Invalid JSON', { status: 400 });
+  }
+  if (!body.token) return new Response('Missing token', { status: 400 });
+
+  await env.LO_PRICE_CACHE.put(
+    TOKEN_PREFIX + body.token,
+    JSON.stringify({
+      platform: body.platform ?? 'unknown',
+      registeredAt: new Date().toISOString(),
+    }),
+  );
+  return json({ ok: true });
+}
+
+async function handleUnregisterToken(request: Request, env: Env): Promise<Response> {
+  let body: TokenRequestBody;
+  try {
+    body = await request.json();
+  } catch {
+    return new Response('Invalid JSON', { status: 400 });
+  }
+  if (!body.token) return new Response('Missing token', { status: 400 });
+
+  await env.LO_PRICE_CACHE.delete(TOKEN_PREFIX + body.token);
+  return json({ ok: true });
+}
+
+interface TestNotifyBody {
+  title?: string;
+  body?: string;
+}
+
+/**
+ * Gửi thử 1 push tới toàn bộ token đã đăng ký, bỏ qua ngưỡng biến động giá
+ * — chỉ để verify pipeline FCM (JWT sign → OAuth token → gửi) hoạt động.
+ *
+ * Yêu cầu header `X-Test-Token` khớp secret `TEST_NOTIFY_TOKEN`:
+ *   npx wrangler secret put TEST_NOTIFY_TOKEN --name lo-gold-proxy
+ * Thiếu secret này → endpoint tự tắt (403), tránh ai cũng gọi được để spam
+ * push tới toàn bộ user.
+ */
+async function handleTestNotify(request: Request, env: Env): Promise<Response> {
+  if (!env.TEST_NOTIFY_TOKEN) {
+    return new Response('Chưa cấu hình TEST_NOTIFY_TOKEN', { status: 403 });
+  }
+  if (request.headers.get('X-Test-Token') !== env.TEST_NOTIFY_TOKEN) {
+    return new Response('Unauthorized', { status: 401 });
+  }
+  if (!env.FCM_PROJECT_ID || !env.FCM_SERVICE_ACCOUNT_JSON) {
+    return new Response('Chưa cấu hình FCM_PROJECT_ID/FCM_SERVICE_ACCOUNT_JSON', { status: 400 });
+  }
+
+  let body: TestNotifyBody = {};
+  try {
+    body = await request.json();
+  } catch {
+    // Body rỗng cũng OK — dùng title/body mặc định.
+  }
+
+  const title = body.title ?? 'Test thông báo giá vàng';
+  const message = body.body ?? 'Nếu bạn thấy cái này, push notification đã chạy đúng 🎉';
+
+  try {
+    await sendFcmToAll(env, title, message);
+    return json({ ok: true });
+  } catch (err) {
+    return json({ ok: false, error: String(err) }, 500);
+  }
+}
+
+interface LastNotifiedPrice {
+  buyPrice: number;
+  notifiedAt: string;
+}
+
+async function checkPriceSurgeAndNotify(bundle: PriceBundle, env: Env): Promise<void> {
+  // Push chưa cấu hình (thiếu secret) → bỏ qua êm, không phải lỗi.
+  if (!env.FCM_PROJECT_ID || !env.FCM_SERVICE_ACCOUNT_JSON) return;
+
+  const sjc = bundle.prices.find((p) => p.goldTypeId === 'sjc');
+  if (!sjc) return;
+
+  const rawLast = await env.LO_PRICE_CACHE.get(LAST_NOTIFIED_KEY);
+  if (!rawLast) {
+    // Lần đầu chạy — chỉ lưu baseline, chưa có gì để so sánh nên không bắn push.
+    await env.LO_PRICE_CACHE.put(
+      LAST_NOTIFIED_KEY,
+      JSON.stringify({ buyPrice: sjc.buyPrice, notifiedAt: new Date().toISOString() }),
+    );
+    return;
+  }
+
+  const last: LastNotifiedPrice = JSON.parse(rawLast);
+  if (last.buyPrice <= 0) return;
+
+  const pctChange = ((sjc.buyPrice - last.buyPrice) / last.buyPrice) * 100;
+  if (Math.abs(pctChange) < NOTIFY_THRESHOLD_PERCENT) return;
+
+  const direction = pctChange > 0 ? 'tăng' : 'giảm';
+  const title = `Giá vàng SJC vừa ${direction} ${Math.abs(pctChange).toFixed(2)}%`;
+  const body = `Giá mua vào hiện tại: ${formatVnd(sjc.buyPrice)}đ/lượng`;
+
+  try {
+    await sendFcmToAll(env, title, body);
+    await env.LO_PRICE_CACHE.put(
+      LAST_NOTIFIED_KEY,
+      JSON.stringify({ buyPrice: sjc.buyPrice, notifiedAt: new Date().toISOString() }),
+    );
+  } catch (err) {
+    console.error('gửi FCM thất bại:', err);
+  }
+}
+
+interface ServiceAccount {
+  client_email: string;
+  private_key: string;
+}
+
+/** Đổi service account JSON → OAuth2 access token (JWT-bearer flow). */
+async function getFcmAccessToken(serviceAccountJson: string): Promise<string> {
+  const account: ServiceAccount = JSON.parse(serviceAccountJson);
+  // Khi set secret qua shell/redirect, "\n" trong PEM đôi khi bị escape kép
+  // thành literal "\\n" — chuẩn hoá lại thành xuống dòng thật trước khi
+  // importPKCS8 parse, không thì lỗi "must be PKCS#8 formatted string".
+  const privateKeyPem = account.private_key.replace(/\\n/g, '\n');
+  const privateKey = await importPKCS8(privateKeyPem, 'RS256');
+
+  const jwt = await new SignJWT({ scope: 'https://www.googleapis.com/auth/firebase.messaging' })
+    .setProtectedHeader({ alg: 'RS256' })
+    .setIssuedAt()
+    .setIssuer(account.client_email)
+    .setSubject(account.client_email)
+    .setAudience('https://oauth2.googleapis.com/token')
+    .setExpirationTime('1h')
+    .sign(privateKey);
+
+  const res = await fetchWithTimeout('https://oauth2.googleapis.com/token', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({
+      grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer',
+      assertion: jwt,
+    }),
+  });
+  if (!res.ok) {
+    throw new Error(`Lấy access token thất bại: HTTP ${res.status}`);
+  }
+  const data = await res.json<{ access_token: string }>();
+  return data.access_token;
+}
+
+/**
+ * Gửi push tới toàn bộ token đã đăng ký. Token bị FCM báo không còn hợp lệ
+ * (app gỡ cài đặt/token hết hạn) thì tự xoá khỏi KV để dọn rác.
+ *
+ * Giới hạn hiện tại: `list()` chỉ lấy tối đa 1000 token/lần (không phân
+ * trang) — đủ dùng ở quy mô nhỏ, cần thêm cursor pagination nếu vượt mốc này.
+ */
+async function sendFcmToAll(env: Env, title: string, body: string): Promise<void> {
+  const projectId = env.FCM_PROJECT_ID!;
+  const accessToken = await getFcmAccessToken(env.FCM_SERVICE_ACCOUNT_JSON!);
+  const list = await env.LO_PRICE_CACHE.list({ prefix: TOKEN_PREFIX });
+
+  for (const key of list.keys) {
+    const token = key.name.slice(TOKEN_PREFIX.length);
+    const res = await fetch(
+      `https://fcm.googleapis.com/v1/projects/${projectId}/messages:send`,
+      {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ message: { token, notification: { title, body } } }),
+      },
+    );
+
+    if (!res.ok) {
+      const errText = await res.text();
+      console.warn(`FCM gửi lỗi cho token ...${token.slice(-8)}: ${errText}`);
+      if (res.status === 404 || errText.includes('UNREGISTERED')) {
+        await env.LO_PRICE_CACHE.delete(key.name);
+      }
+    }
+  }
+}
+
+function formatVnd(value: number): string {
+  return Math.round(value).toLocaleString('vi-VN');
+}
 
 // ─── Cache logic ──────────────────────────────────────────────────────────
 
@@ -263,8 +497,9 @@ async function fetchWithTimeout(url: string, init: RequestInit): Promise<Respons
   }
 }
 
-function json(payload: unknown): Response {
+function json(payload: unknown, status = 200): Response {
   return new Response(JSON.stringify(payload), {
+    status,
     headers: { 'Content-Type': 'application/json; charset=utf-8' },
   });
 }

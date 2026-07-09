@@ -3,9 +3,9 @@ import 'package:flutter/material.dart';
 /// App-wide constants for Lỗ
 class AppConstants {
   // App info
-  static const String appName = 'Lỗ';
-  static const String appFullName = 'Lỗ';
-  static const String slogan = 'Lỗ nhiều chưa?';
+  static const String appName = 'Lỗ nhiều chưa?';
+  static const String appFullName = 'Lỗ nhiều chưa?';
+  static const String slogan = 'Hôm nay lỗ nhiều không?';
   static const String disclaimer =
       'Thông tin chỉ mang tính tham khảo, không phải khuyến nghị mua/bán vàng.';
 
@@ -15,10 +15,6 @@ class AppConstants {
   static const double gramsPerLuong = 37.5;
   static const double chiPerLuong = 10.0;
   static const double gramsPerChi = 3.75;
-
-  // Free tier limits (feature flag for monetization)
-  static const int freeTierMaxHoldings = 3;
-  static const bool isPro = false; // feature flag - set true for Pro
 
   // Price update interval (minutes)
   static const int priceUpdateIntervalMinutes = 30;

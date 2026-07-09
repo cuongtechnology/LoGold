@@ -12,9 +12,20 @@ crons = ["*/5 * * * *"]
 # Rồi copy id/preview_id từ output vào 2 dòng dưới.
 [[kv_namespaces]]
 binding = "LO_PRICE_CACHE"
-id = "TODO_replace_with_kv_id_from_wrangler_output"
-preview_id = "TODO_replace_with_preview_id_from_wrangler_output"
+id = "209c3d6287a14ff598979ebea0581247"
+preview_id = "33c258106adb4029adb2ce158b40dfbb"
 
 # Bật observability để xem log của cron + request errors trên dashboard.
 [observability]
 enabled = true
+
+# Push notification (giá SJC biến động) — set qua `wrangler secret put`, KHÔNG
+# khai báo giá trị thật ở đây (secret không lưu trong file, không commit).
+#   npx wrangler secret put FCM_PROJECT_ID
+#   npx wrangler secret put FCM_SERVICE_ACCOUNT_JSON
+# Thiếu 2 secret này thì tính năng push tự tắt (worker vẫn chạy bình thường
+# cho phần cache giá).
+#
+# TEST_NOTIFY_TOKEN (tuỳ chọn) — bật endpoint POST /test-notify để gửi thử
+# push bỏ qua ngưỡng biến động giá, dùng khi verify tích hợp FCM:
+#   npx wrangler secret put TEST_NOTIFY_TOKEN

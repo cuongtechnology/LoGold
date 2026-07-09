@@ -86,8 +86,15 @@ workflows:
         script: |
           flutter build apk --release
 
+      # Google Play Console bắt buộc .aab (Android App Bundle) để nộp app
+      # mới — .apk ở trên chỉ dùng để cài thử/phân phối ngoài Play Store.
+      - name: Build AAB release cho Play Store
+        script: |
+          flutter build appbundle --release
+
     artifacts:
       - build/**/outputs/**/*.apk
+      - build/**/outputs/**/*.aab
       - build/**/outputs/**/mapping.txt
       - lo-web.zip
 
@@ -103,6 +110,7 @@ workflows:
         prerelease: false
         artifact_patterns:
           - '*.apk'
+          - '*.aab'
           - lo-web.zip
 
   # ─────────────────────────────────────────────────────────────

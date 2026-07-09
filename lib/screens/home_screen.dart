@@ -5,12 +5,14 @@ import '../constants/app_constants.dart';
 import '../stores/app_store.dart';
 import '../services/profit_loss_calculator.dart';
 import '../services/meme_engine.dart';
-import '../models/meme_template.dart';
+import '../models/meme_template.dart'; // EmotionalStatusX (label/emoji) dùng ở _buildStatusSection
 import '../components/ui_components.dart';
+import '../components/banner_ad_widget.dart';
 import 'add_purchase_screen.dart';
 import 'holding_detail_screen.dart';
 import 'utilities_screen.dart';
 import 'charts_screen.dart';
+import 'historical_comparison_screen.dart';
 
 /// Home Dashboard - main screen with portfolio overview, P/L, and meme status.
 class HomeScreen extends StatefulWidget {
@@ -21,25 +23,6 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-  MemeTemplate? _currentMeme;
-
-  @override
-  void initState() {
-    super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _refreshMeme();
-    });
-  }
-
-  void _refreshMeme() {
-    final store = context.read<AppStore>();
-    final summary = store.portfolioSummary;
-    final plPercent = summary?.totalProfitLossPercent ?? 0;
-    setState(() {
-      _currentMeme = MemeEngine.getRandomMeme(plPercent);
-    });
-  }
-
   @override
   Widget build(BuildContext context) {
     final store = context.watch<AppStore>();
@@ -71,9 +54,10 @@ class _HomeScreenState extends State<HomeScreen> {
               else ...[
                 SliverToBoxAdapter(child: _buildPortfolioCard(summary, privacyMode)),
                 SliverToBoxAdapter(child: _buildStatusSection(summary)),
-                SliverToBoxAdapter(child: _buildMemeSection()),
+                SliverToBoxAdapter(child: _buildMemeSection(summary)),
                 SliverToBoxAdapter(child: _buildHoldingsPreview(store, summary)),
                 SliverToBoxAdapter(child: _buildQuickActions(store)),
+                const SliverToBoxAdapter(child: BannerAdWidget()),
                 const SliverToBoxAdapter(child: SizedBox(height: 80)),
               ],
             ],
@@ -97,12 +81,13 @@ class _HomeScreenState extends State<HomeScreen> {
             children: [
               Row(
                 children: [
-                  const Text(
-                    'Lỗ',
-                    style: TextStyle(
-                      fontSize: 28,
-                      fontWeight: FontWeight.w900,
-                      color: AppColors.gold,
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(8),
+                    child: Image.asset(
+                      'assets/logo.png',
+                      height: 32,
+                      width: 32,
+                      fit: BoxFit.cover,
                     ),
                   ),
                   const SizedBox(width: 8),
@@ -336,23 +321,16 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Widget _buildMemeSection() {
-    if (_currentMeme == null) return const SizedBox.shrink();
-
-    return Column(
-      children: [
-        SectionHeader(
-          title: 'Meme an ủi hôm nay',
-          actionText: 'Đổi câu',
-          onAction: _refreshMeme,
-        ),
-        MemeCard(
-          title: _currentMeme!.title,
-          content: _currentMeme!.content,
-          emoji: _currentMeme!.emoji,
-          severityLevel: _currentMeme!.severityLevel,
-        ),
-      ],
+  Widget _buildMemeSection(PortfolioSummary summary) {
+    // Tính trực tiếp từ P/L% thật mỗi lần rebuild — luôn khớp tình huống
+    // hiện tại, không cho đổi/random tay (MemeEngine.getMeme deterministic
+    // theo ngày, không phải getRandomMeme).
+    final meme = MemeEngine.getMeme(summary.totalProfitLossPercent);
+    return MemeCard(
+      title: meme.title,
+      content: meme.content,
+      emoji: meme.emoji,
+      severityLevel: meme.severityLevel,
     );
   }
 
@@ -500,6 +478,14 @@ class _HomeScreenState extends State<HomeScreen> {
                   context,
                   MaterialPageRoute(
                     builder: (_) => const ChartsScreen(),
+                  ),
+                );
+              }),
+              _quickAction('📜', 'So sánh lịch sử', () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => const HistoricalComparisonScreen(),
                   ),
                 );
               }),

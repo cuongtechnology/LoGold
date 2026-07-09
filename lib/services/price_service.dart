@@ -62,7 +62,7 @@ class PriceService {
       }
 
       _status = PriceSourceStatus.fresh;
-      _statusMessage = 'Đã cập nhật ${_activeAdapter.displayName}';
+      _statusMessage = 'Đã cập nhật giá vàng';
 
       return prices;
     } catch (e) {

@@ -145,6 +145,12 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/v')
         run: flutter build apk --release
 
+      # Google Play Console bắt buộc .aab (Android App Bundle) để nộp app
+      # mới — .apk ở trên chỉ dùng để cài thử/phân phối ngoài Play Store.
+      - name: Build release AAB cho Play Store (tag only)
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: flutter build appbundle --release
+
       - uses: actions/upload-artifact@v4
         with:
           name: apk-debug-${{ github.sha }}
@@ -156,6 +162,13 @@ jobs:
         with:
           name: apk-release-${{ github.ref_name }}
           path: build/app/outputs/flutter-apk/app-release.apk
+          retention-days: 30
+
+      - uses: actions/upload-artifact@v4
+        if: startsWith(github.ref, 'refs/tags/v')
+        with:
+          name: aab-release-${{ github.ref_name }}
+          path: build/app/outputs/bundle/release/app-release.aab
           retention-days: 30
 
   # Chỉ chạy khi push tag v* — build IPA unsigned và upload.
@@ -212,7 +225,7 @@ jobs:
       - name: Flatten artifact tree
         run: |
           mkdir -p release
-          find artifacts -type f \( -name "*.apk" -o -name "*.ipa" -o -name "*.zip" \) \
+          find artifacts -type f \( -name "*.apk" -o -name "*.aab" -o -name "*.ipa" -o -name "*.zip" \) \
             -exec cp {} release/ \;
           ls -lh release/
 

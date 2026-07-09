@@ -1,8 +1,15 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-permission android:name="android.permission.INTERNET"/>
+    <!-- Android 13+ (API 33) yêu cầu quyền này để hiện notification (push giá vàng). -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
     <application
-        android:label="Lỗ"
+        android:label="Lỗ nhiều chưa?"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
+        <!-- AdMob App ID thật (Android) — app "Lỗ" trên AdMob Console. -->
+        <meta-data
+            android:name="com.google.android.gms.ads.APPLICATION_ID"
+            android:value="ca-app-pub-8197625767029457~3849190173"/>
         <activity
             android:name=".MainActivity"
             android:exported="true"

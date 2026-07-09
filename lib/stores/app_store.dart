@@ -1,13 +1,19 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import '../models/user_holding.dart';
 import '../models/gold_type.dart';
 import '../models/gold_price.dart';
 import '../models/price_alert.dart';
+import '../models/historical_gold_price.dart';
 import '../api/price_adapter.dart';
 import '../services/portfolio_service.dart';
 import '../services/price_service.dart';
 import '../services/notification_service.dart';
+import '../services/historical_price_service.dart';
 import '../services/profit_loss_calculator.dart';
+import '../services/push_notification_service.dart';
+import '../services/review_service.dart';
 import '../services/storage_service.dart';
 
 /// AppStore - Central state management using Provider ChangeNotifier.
@@ -15,25 +21,23 @@ import '../services/storage_service.dart';
 class AppStore extends ChangeNotifier {
   // Settings keys trong Hive settings box.
   static const _kOnboarded = 'onboarded';
-  static const _kDarkMode = 'darkMode';
   static const _kPrivacyMode = 'privacyMode';
   static const _kPinEnabled = 'pinEnabled';
   static const _kPin = 'pin';
-  static const _kPreferredGoldTypeId = 'preferredGoldTypeId';
 
   // Services
   final _portfolio = PortfolioService.instance;
   final _priceService = PriceService.instance;
   final _notificationService = NotificationService.instance;
+  final _historicalPriceService = HistoricalPriceService.instance;
+  final _pushNotificationService = PushNotificationService.instance;
+  final _reviewService = ReviewService.instance;
 
   // State
   bool _isOnboarded = false;
-  bool _isDarkMode = true;
   bool _privacyMode = false; // hide actual amounts
   bool _pinEnabled = false;
-  // ignore: unused_field
   String _pin = '';
-  String _preferredGoldTypeId = 'sjc';
   bool _isLoading = false;
   String _loadingMessage = '';
 
@@ -45,10 +49,8 @@ class AppStore extends ChangeNotifier {
 
   // Getters
   bool get isOnboarded => _isOnboarded;
-  bool get isDarkMode => _isDarkMode;
   bool get privacyMode => _privacyMode;
   bool get pinEnabled => _pinEnabled;
-  String get preferredGoldTypeId => _preferredGoldTypeId;
   bool get isLoading => _isLoading;
   String get loadingMessage => _loadingMessage;
   List<UserHolding> get holdings => _holdings;
@@ -61,6 +63,22 @@ class AppStore extends ChangeNotifier {
   List<AppNotification> get notifications => _notificationService.notifications;
   PriceSourceStatus get priceStatus => _priceService.status;
   String get priceStatusMessage => _priceService.statusMessage;
+  /// Series lịch sử SJC (loại vàng chính, tải sẵn lúc app khởi động).
+  List<HistoricalPricePoint> get historicalPrices =>
+      _historicalPriceService.seriesFor('sjc');
+  String get historicalPriceStatusMessage =>
+      _historicalPriceService.statusMessageFor('sjc');
+
+  /// Series lịch sử cho 1 loại vàng bất kỳ — chỉ SJC được tải sẵn lúc khởi
+  /// động, loại khác cần gọi `loadHistoricalPricesFor` trước (xem
+  /// `price_table_screen.dart`).
+  List<HistoricalPricePoint> historicalPricesFor(String goldTypeId) =>
+      _historicalPriceService.seriesFor(goldTypeId);
+  String historicalPriceStatusMessageFor(String goldTypeId) =>
+      _historicalPriceService.statusMessageFor(goldTypeId);
+  bool get isPushNotificationReady => _pushNotificationService.isReady;
+  String get pushNotificationStatusMessage =>
+      _pushNotificationService.statusMessage;
 
   /// Initialize the app. Yêu cầu `StorageService.init()` đã chạy xong.
   Future<void> init() async {
@@ -79,36 +97,49 @@ class AppStore extends ChangeNotifier {
 
     _setLoading(false);
     notifyListeners();
+
+    // Không chặn startup vì dữ liệu lịch sử chỉ phục vụ phân tích/so sánh,
+    // không cần thiết cho các màn hình chính. Xong sẽ tự notifyListeners.
+    unawaited(loadHistoricalPrices());
+
+    // Ghi nhận lần mở đầu tiên + xin đánh giá nếu đủ điều kiện (xem
+    // ReviewService — chỉ hỏi sau vài ngày dùng + có vài vị thế, không hỏi
+    // ngay lúc mở app lần đầu).
+    unawaited(_reviewService.recordFirstOpenIfNeeded());
+    unawaited(
+      _reviewService.maybeRequestReview(
+        activeHoldingCount: activeHoldings.length,
+      ),
+    );
+  }
+
+  /// Tải series giá SJC lịch sử (dùng cho phân tích/so sánh + meme).
+  Future<void> loadHistoricalPrices({bool forceRefresh = false}) async {
+    await _historicalPriceService.load('sjc', forceRefresh: forceRefresh);
+    notifyListeners();
+  }
+
+  /// Tải series lịch sử cho 1 loại vàng bất kỳ (Bảng giá khi chọn ngày quá
+  /// khứ). An toàn gọi nhiều lần — service tự cache theo từng loại.
+  Future<void> loadHistoricalPricesFor(
+    String goldTypeId, {
+    bool forceRefresh = false,
+  }) async {
+    await _historicalPriceService.load(goldTypeId, forceRefresh: forceRefresh);
+    notifyListeners();
   }
 
   void _loadSettings() {
     _isOnboarded = StorageService.getSetting<bool>(_kOnboarded) ?? false;
-    _isDarkMode = StorageService.getSetting<bool>(_kDarkMode) ?? true;
     _privacyMode = StorageService.getSetting<bool>(_kPrivacyMode) ?? false;
     _pinEnabled = StorageService.getSetting<bool>(_kPinEnabled) ?? false;
     _pin = StorageService.getSetting<String>(_kPin) ?? '';
-    _preferredGoldTypeId =
-        StorageService.getSetting<String>(_kPreferredGoldTypeId) ?? 'sjc';
   }
 
   /// Complete onboarding
   Future<void> completeOnboarding() async {
     _isOnboarded = true;
     await StorageService.putSetting(_kOnboarded, true);
-    notifyListeners();
-  }
-
-  /// Set preferred gold type
-  Future<void> setPreferredGoldType(String goldTypeId) async {
-    _preferredGoldTypeId = goldTypeId;
-    await StorageService.putSetting(_kPreferredGoldTypeId, goldTypeId);
-    notifyListeners();
-  }
-
-  /// Toggle dark mode
-  Future<void> toggleDarkMode() async {
-    _isDarkMode = !_isDarkMode;
-    await StorageService.putSetting(_kDarkMode, _isDarkMode);
     notifyListeners();
   }
 
@@ -127,6 +158,9 @@ class AppStore extends ChangeNotifier {
     await StorageService.putSetting(_kPin, pin);
     notifyListeners();
   }
+
+  /// Kiểm tra PIN nhập vào có khớp PIN đã lưu không — dùng bởi `LockScreen`.
+  bool verifyPin(String pin) => _pinEnabled && pin.isNotEmpty && pin == _pin;
 
   /// Refresh gold prices from the active source
   Future<void> refreshPrices() async {
@@ -260,8 +294,4 @@ class AppStore extends ChangeNotifier {
     _isLoading = loading;
     _loadingMessage = message;
   }
-
-  /// Check if free tier limit is reached
-  bool get isFreeTierLimitReached =>
-      activeHoldings.length >= 3 && !kDebugMode; // 3 holdings for free tier
 }
