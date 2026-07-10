@@ -58,7 +58,7 @@ workflows:
 
       - name: Build web release
         script: |
-          flutter build web --release --no-wasm-dry-run
+          flutter build web --release --no-wasm-dry-run --dart-define=LO_WORKER_URL=$LO_WORKER_URL
 
       - name: Zip web bundle
         script: |

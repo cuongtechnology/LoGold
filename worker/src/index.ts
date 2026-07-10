@@ -21,6 +21,17 @@
  *    Tạo service account: Firebase Console → Project settings → Service accounts
  *    → Generate new private key.
  *
+ * Meme AI (bổ sung, không thay thế kho meme tĩnh trong app):
+ *  - `GET /memes` — trả về batch meme do Workers AI sinh, cache trong KV
+ *    (key `memes:ai_generated:v1`). App fetch lúc khởi động, merge với
+ *    `MemeDatabase` tĩnh — fetch lỗi/rỗng thì app vẫn chạy bình thường.
+ *  - Batch tự sinh lại mỗi 7 ngày (check trong `scheduled()`), hoặc gọi tay
+ *    qua `POST /regenerate-memes` (cần header `X-Regen-Token` khớp secret
+ *    `MEME_REGEN_TOKEN`).
+ *  - Dùng Cloudflare Workers AI (`env.AI`, binding cấu hình ở wrangler.toml)
+ *    — không cần API key/tài khoản bên thứ 3. Thiếu binding thì tính năng
+ *    tự tắt êm, không lỗi.
+ *
  * Deploy:
  *   cd worker && npm install
  *   npx wrangler kv namespace create LO_PRICE_CACHE     # copy id vào wrangler.toml
@@ -33,9 +44,11 @@ import { SignJWT, importPKCS8 } from 'jose';
 
 export interface Env {
   LO_PRICE_CACHE: KVNamespace;
+  AI?: Ai;
   FCM_PROJECT_ID?: string;
   FCM_SERVICE_ACCOUNT_JSON?: string;
   TEST_NOTIFY_TOKEN?: string;
+  MEME_REGEN_TOKEN?: string;
 }
 
 interface GoldPrice {
@@ -93,6 +106,14 @@ export default {
       return corsResponse(await handleTestNotify(request, env));
     }
 
+    if (request.method === 'GET' && url.pathname === '/memes') {
+      return corsResponse(await handleGetMemes(env));
+    }
+
+    if (request.method === 'POST' && url.pathname === '/regenerate-memes') {
+      return corsResponse(await handleRegenerateMemes(request, env));
+    }
+
     return corsResponse(new Response('Not found', { status: 404 }));
   },
 
@@ -109,6 +130,14 @@ export default {
       await checkPriceSurgeAndNotify(bundle, env);
     } catch (err) {
       console.error('scheduled refresh failed:', err);
+    }
+
+    // Sinh lại batch meme AI nếu đã quá 7 ngày — bọc try/catch riêng để lỗi
+    // ở đây (vd: Workers AI quá tải) không ảnh hưởng phần cache giá ở trên.
+    try {
+      await generateMemeBatchIfStale(env);
+    } catch (err) {
+      console.error('meme batch generation failed:', err);
     }
   },
 };
@@ -314,6 +343,163 @@ async function sendFcmToAll(env: Env, title: string, body: string): Promise<void
 
 function formatVnd(value: number): string {
   return Math.round(value).toLocaleString('vi-VN');
+}
+
+// ─── Meme AI (Workers AI, sinh batch theo chu kỳ) ─────────────────────────
+
+const MEME_CACHE_KEY = 'memes:ai_generated:v1';
+const MEME_GENERATED_AT_KEY = 'memes:generated_at';
+const MEME_REGEN_INTERVAL_MS = 7 * 24 * 60 * 60 * 1000; // 7 ngày
+const AI_MODEL = '@cf/meta/llama-3.1-8b-instruct';
+const MEMES_PER_CONDITION = 6;
+
+interface GeneratedMeme {
+  id: string;
+  condition: string;
+  title: string;
+  content: string;
+  severityLevel: number;
+  emoji: string;
+}
+
+/**
+ * Metadata mỗi condition — `title`/`severityLevel` khớp đúng với kho meme
+ * tĩnh trong app (`lib/data/meme_database.dart`) để entry AI sinh ra hiển
+ * thị nhất quán. `vibe` mô tả sắc thái cảm xúc, đưa vào prompt cho model.
+ */
+const MEME_CONDITIONS: {
+  condition: string;
+  title: string;
+  severityLevel: number;
+  vibe: string;
+  emojiPool: string[];
+}[] = [
+  { condition: 'profitHigh', title: 'Lãi đỉnh', severityLevel: 0, vibe: 'lãi rất nhiều, tự hào, hơi khoe khoang', emojiPool: ['🎉', '👑', '💰', '🤩', '💎'] },
+  { condition: 'profitMedium', title: 'Lãi vừa', severityLevel: 0, vibe: 'lãi kha khá, vui vừa phải', emojiPool: ['😊', '📈', '🙂', '😄', '✨'] },
+  { condition: 'profitLow', title: 'Về bờ', severityLevel: 0, vibe: 'vừa hòa vốn hoặc lãi chút ít, chưa có gì to tát', emojiPool: ['🙂', '😌', '⚖️', '🌱', '👌'] },
+  { condition: 'lossMinimal', title: 'Xước nhẹ', severityLevel: 0, vibe: 'lỗ rất ít, không đáng lo, tự trấn an', emojiPool: ['😅', '🤏', '😬', '🫤', '🙃'] },
+  { condition: 'lossLight', title: 'Thấy sai sai', severityLevel: 1, vibe: 'lỗ nhẹ, bắt đầu hoang mang nghi ngờ quyết định', emojiPool: ['😐', '🤨', '😕', '🫠', '😶'] },
+  { condition: 'lossModerate', title: 'Tim nhói', severityLevel: 2, vibe: 'lỗ kha khá, xót ruột thật sự', emojiPool: ['😬', '💔', '😩', '😖', '😣'] },
+  { condition: 'lossHeavy', title: 'Cần người ôm', severityLevel: 3, vibe: 'lỗ nặng, cần được an ủi', emojiPool: ['😭', '🫂', '😵', '💸', '🥲'] },
+  { condition: 'lossSpiritual', title: 'Lỗ tâm linh', severityLevel: 4, vibe: 'lỗ cực nặng, chuyển sang triết lý/tâm linh cho nhẹ lòng', emojiPool: ['🧘', '🙏', '☯️', '🕯️', '😇'] },
+];
+
+const MEME_SYSTEM_PROMPT = `Bạn viết caption cho app theo dõi lãi/lỗ đầu tư vàng của người Việt, phong cách "hỏi đểu đểu" — không nói thẳng "bạn lỗ/lãi", mà đặt câu hỏi trêu chọc, hài hước, mỉa mai nhẹ nhàng liên quan tới việc mua/giữ vàng.
+Quy tắc bắt buộc:
+- Viết bằng tiếng Việt, mỗi dòng đúng 1 câu, không đánh số, không markdown, không dấu gạch đầu dòng.
+- Câu ngắn (dưới 25 từ), thường kết thúc bằng dấu hỏi.
+- Không đưa ra lời khuyên mua/bán/đầu tư, không khẳng định giá sẽ tăng/giảm.
+- Không xúc phạm, không nhắc tên thương hiệu/tiệm vàng cụ thể, không nội dung nhạy cảm chính trị/tôn giáo/tình dục.
+- Chỉ trả về đúng các câu caption, không giải thích gì thêm.`;
+
+/** Sinh 1 batch meme mới cho toàn bộ condition, ghi đè cache nếu có ít nhất 1 condition thành công. */
+async function generateMemeBatch(env: Env): Promise<number> {
+  if (!env.AI) return 0;
+
+  const results: GeneratedMeme[] = [];
+  for (const meta of MEME_CONDITIONS) {
+    try {
+      const memes = await generateMemesForCondition(env.AI, meta);
+      results.push(...memes);
+    } catch (err) {
+      console.error(`Sinh meme cho ${meta.condition} thất bại:`, err);
+    }
+  }
+
+  // Toàn bộ condition đều lỗi (vd: Workers AI quá tải) — giữ nguyên cache cũ,
+  // không ghi đè bằng mảng rỗng.
+  if (results.length === 0) return 0;
+
+  await env.LO_PRICE_CACHE.put(MEME_CACHE_KEY, JSON.stringify(results));
+  await env.LO_PRICE_CACHE.put(MEME_GENERATED_AT_KEY, String(Date.now()));
+  return results.length;
+}
+
+async function generateMemeBatchIfStale(env: Env): Promise<void> {
+  if (!env.AI) return;
+  const lastGenRaw = await env.LO_PRICE_CACHE.get(MEME_GENERATED_AT_KEY);
+  const lastGen = lastGenRaw ? Number(lastGenRaw) : 0;
+  if (Date.now() - lastGen < MEME_REGEN_INTERVAL_MS) return;
+  await generateMemeBatch(env);
+}
+
+async function generateMemesForCondition(
+  ai: Ai,
+  meta: (typeof MEME_CONDITIONS)[number],
+): Promise<GeneratedMeme[]> {
+  const prompt = `Điều kiện: ${meta.title} (${meta.vibe}).\nViết ${MEMES_PER_CONDITION} câu caption phù hợp.`;
+
+  const raw = await ai.run(AI_MODEL, {
+    messages: [
+      { role: 'system', content: MEME_SYSTEM_PROMPT },
+      { role: 'user', content: prompt },
+    ],
+  });
+
+  const text = typeof (raw as { response?: unknown }).response === 'string'
+    ? (raw as { response: string }).response
+    : '';
+
+  return parseMemeLines(text, meta);
+}
+
+/**
+ * Model text-gen không đảm bảo trả JSON hợp lệ — yêu cầu mỗi dòng 1 caption
+ * thay vì JSON, tự parse dòng ở đây. Lọc dòng rỗng/quá dài/quá ngắn và vài
+ * cụm từ nghe như lời khuyên đầu tư (phòng khi model lỡ vi phạm system prompt).
+ */
+function parseMemeLines(
+  text: string,
+  meta: (typeof MEME_CONDITIONS)[number],
+): GeneratedMeme[] {
+  const bannedPhrases = ['nên mua', 'nên bán', 'khuyến nghị', 'chắc chắn tăng', 'chắc chắn giảm', 'đảm bảo lãi'];
+
+  const lines = text
+    .split('\n')
+    .map((line) => line.replace(/^[\s\-*\d.)]+/, '').trim())
+    .filter((line) => line.length >= 8 && line.length <= 160)
+    .filter((line) => !bannedPhrases.some((p) => line.toLowerCase().includes(p)))
+    .slice(0, MEMES_PER_CONDITION);
+
+  const now = Date.now();
+  return lines.map((content, i) => ({
+    id: `ai_${meta.condition}_${now}_${i}`,
+    condition: meta.condition,
+    title: meta.title,
+    content,
+    severityLevel: meta.severityLevel,
+    emoji: meta.emojiPool[i % meta.emojiPool.length],
+  }));
+}
+
+async function handleGetMemes(env: Env): Promise<Response> {
+  const cached = await env.LO_PRICE_CACHE.get(MEME_CACHE_KEY);
+  return json(cached ? JSON.parse(cached) : []);
+}
+
+/**
+ * Sinh lại batch meme ngay lập tức, bỏ qua chu kỳ 7 ngày — dùng khi test
+ * prompt mới. Yêu cầu header `X-Regen-Token` khớp secret `MEME_REGEN_TOKEN`:
+ *   npx wrangler secret put MEME_REGEN_TOKEN
+ * Thiếu secret này → endpoint tự tắt (403).
+ */
+async function handleRegenerateMemes(request: Request, env: Env): Promise<Response> {
+  if (!env.MEME_REGEN_TOKEN) {
+    return new Response('Chưa cấu hình MEME_REGEN_TOKEN', { status: 403 });
+  }
+  if (request.headers.get('X-Regen-Token') !== env.MEME_REGEN_TOKEN) {
+    return new Response('Unauthorized', { status: 401 });
+  }
+  if (!env.AI) {
+    return new Response('Chưa cấu hình Workers AI binding', { status: 400 });
+  }
+
+  try {
+    const count = await generateMemeBatch(env);
+    return json({ ok: true, count });
+  } catch (err) {
+    return json({ ok: false, error: String(err) }, 500);
+  }
 }
 
 // ─── Cache logic ──────────────────────────────────────────────────────────

@@ -10,6 +10,7 @@ import 'api/sjc_price_adapter.dart';
 import 'api/vang_today_price_adapter.dart';
 import 'constants/app_constants.dart';
 import 'services/ad_service.dart';
+import 'services/ai_meme_service.dart';
 import 'services/price_service.dart';
 import 'services/push_notification_service.dart';
 import 'services/storage_service.dart';
@@ -43,6 +44,9 @@ Future<void> main() async {
       registerEndpoint: _kWorkerUrl.isEmpty ? '' : '$_kWorkerUrl/register-token',
     ),
   );
+  // Batch meme do Workers AI sinh (server cache theo tuần) — bổ sung kho meme
+  // tĩnh, không chặn màn hình đầu; rỗng/lỗi thì MemeEngine vẫn chạy bình thường.
+  unawaited(AiMemeService.instance.load(_kWorkerUrl));
 }
 
 /// `VangTodayPriceAdapter` luôn là nguồn giá mặc định (API miễn phí, bật

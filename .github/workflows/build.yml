@@ -73,7 +73,7 @@ jobs:
         run: flutter doctor -v
 
       - run: flutter pub get
-      - run: flutter build web --release --no-wasm-dry-run
+      - run: flutter build web --release --no-wasm-dry-run --dart-define=LO_WORKER_URL=${{ env.LO_WORKER_URL }}
 
       - uses: actions/upload-artifact@v4
         with:
