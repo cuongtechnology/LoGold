@@ -25,6 +25,10 @@ workflows:
         - android_release  # Chứa CM_KEYSTORE_B64, CM_KEYSTORE_PASSWORD, CM_KEY_ALIAS, CM_KEY_PASSWORD
       vars:
         PACKAGE_NAME: "vn.lo.app"
+        # URL công khai của Cloudflare Worker (không phải secret) — cần
+        # truyền vào lúc build release để app đăng ký FCM token, nếu không
+        # push notification báo "Đã bật, chưa kết nối server gửi thông báo".
+        LO_WORKER_URL: "https://lo-gold-proxy.webjscloud.workers.dev"
 
     triggering:
       events:
@@ -84,13 +88,13 @@ workflows:
 
       - name: Build APK release
         script: |
-          flutter build apk --release
+          flutter build apk --release --dart-define=LO_WORKER_URL=$LO_WORKER_URL
 
       # Google Play Console bắt buộc .aab (Android App Bundle) để nộp app
       # mới — .apk ở trên chỉ dùng để cài thử/phân phối ngoài Play Store.
       - name: Build AAB release cho Play Store
         script: |
-          flutter build appbundle --release
+          flutter build appbundle --release --dart-define=LO_WORKER_URL=$LO_WORKER_URL
 
     artifacts:
       - build/**/outputs/**/*.apk

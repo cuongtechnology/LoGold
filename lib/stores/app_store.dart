@@ -91,6 +91,10 @@ class AppStore extends ChangeNotifier {
 
     _goldTypes = _portfolio.goldTypes;
     _holdings = _portfolio.allHoldings;
+    // Bắn ngay ở đây — không đợi `refreshPrices()` (phụ thuộc mạng, có thể
+    // chậm/timeout) mới cho UI (vd: chọn loại vàng ở Onboarding) thấy dữ
+    // liệu local đã sẵn sàng.
+    notifyListeners();
 
     await refreshPrices();
     _updatePortfolioSummary();

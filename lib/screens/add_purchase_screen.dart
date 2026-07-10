@@ -22,7 +22,9 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
   final _formKey = GlobalKey<FormState>();
   String? _selectedGoldTypeId;
   final _quantityController = TextEditingController();
-  String _selectedUnit = 'luong';
+  // Không đặt mặc định (vd 'luong') — bắt user luôn phải bấm chọn tường
+  // minh để tránh nhầm đơn vị (lượng/chỉ/phân/gram) dẫn tới tính sai lãi/lỗ.
+  String? _selectedUnit;
   final _priceController = TextEditingController();
   final _feeController = TextEditingController();
   final _noteController = TextEditingController();
@@ -33,9 +35,6 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
     super.initState();
     if (widget.initialGoldTypeId != null) {
       _selectedGoldTypeId = widget.initialGoldTypeId;
-      final store = context.read<AppStore>();
-      final gt = store.getGoldType(widget.initialGoldTypeId!);
-      if (gt != null) _selectedUnit = gt.defaultUnit;
     }
   }
 
@@ -49,11 +48,8 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
   }
 
   void _onGoldTypeSelected(String goldTypeId) {
-    final store = context.read<AppStore>();
-    final gt = store.getGoldType(goldTypeId);
     setState(() {
       _selectedGoldTypeId = goldTypeId;
-      if (gt != null) _selectedUnit = gt.defaultUnit;
     });
   }
 
@@ -63,14 +59,16 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
 
   double? get _quantityInLuong {
     final q = _quantity;
-    if (q == null) return null;
-    return GoldUnits.toLuong(q, _selectedUnit);
+    final unit = _selectedUnit;
+    if (q == null || unit == null) return null;
+    return GoldUnits.toLuong(q, unit);
   }
 
   double? get _pricePerLuong {
     final p = _pricePerUnit;
-    if (p == null) return null;
-    return GoldUnits.pricePerLuong(p, _selectedUnit);
+    final unit = _selectedUnit;
+    if (p == null || unit == null) return null;
+    return GoldUnits.pricePerLuong(p, unit);
   }
 
   double? get _totalCost {
@@ -87,6 +85,15 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('Vui lòng chọn loại vàng'),
+          backgroundColor: AppColors.loss,
+        ),
+      );
+      return;
+    }
+    if (_selectedUnit == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Vui lòng chọn đơn vị (lượng/chỉ/phân/gram)'),
           backgroundColor: AppColors.loss,
         ),
       );
@@ -116,7 +123,7 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
     store.addHolding(
       goldTypeId: _selectedGoldTypeId!,
       quantity: _quantity!,
-      unit: _selectedUnit,
+      unit: _selectedUnit!,
       buyPricePerUnit: _pricePerUnit!,
       fee: _fee ?? 0,
       buyDate: _buyDate,
@@ -211,7 +218,7 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
                 const SizedBox(height: 8),
 
                 // Show converted quantity in luong
-                if (_quantity != null && _quantity! > 0)
+                if (_quantity != null && _quantity! > 0 && _quantityInLuong != null)
                   Padding(
                     padding: const EdgeInsets.only(bottom: 12),
                     child: Text(
@@ -227,7 +234,9 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
 
                 // Price per unit
                 _buildField(
-                  label: 'Giá mua / ${GoldUnits.shortLabel(_selectedUnit)} (VNĐ)',
+                  label: _selectedUnit == null
+                      ? 'Giá mua / đơn vị (VNĐ)'
+                      : 'Giá mua / ${GoldUnits.shortLabel(_selectedUnit!)} (VNĐ)',
                   controller: _priceController,
                   hint: 'VD: ${_getDefaultPriceHint()}',
                   keyboardType: TextInputType.number,
@@ -235,7 +244,7 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
                 const SizedBox(height: 8),
 
                 // Show price per luong
-                if (_pricePerUnit != null && _pricePerUnit! > 0)
+                if (_pricePerUnit != null && _pricePerUnit! > 0 && _pricePerLuong != null)
                   Padding(
                     padding: const EdgeInsets.only(bottom: 12),
                     child: Text(
@@ -336,11 +345,11 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
   }
 
   String _getDefaultPriceHint() {
-    if (_selectedGoldTypeId == null) return '116.000.000';
+    if (_selectedGoldTypeId == null || _selectedUnit == null) return '116.000.000';
     final store = context.read<AppStore>();
     final buyPrice = store.getBuyPrice(_selectedGoldTypeId!);
     if (buyPrice != null) {
-      final pricePerUnit = GoldUnits.priceFromLuong(buyPrice, _selectedUnit);
+      final pricePerUnit = GoldUnits.priceFromLuong(buyPrice, _selectedUnit!);
       return pricePerUnit.round().toString();
     }
     return '116.000.000';
@@ -399,6 +408,10 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
           ),
           child: DropdownButton<String>(
             value: _selectedUnit,
+            hint: const Text(
+              'Chọn đơn vị',
+              style: TextStyle(color: AppColors.textHint, fontSize: 14),
+            ),
             underline: const SizedBox(),
             isExpanded: true,
             dropdownColor: AppColors.bgCard,

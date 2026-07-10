@@ -20,7 +20,9 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   // Form fields for first purchase
   String? _selectedGoldTypeId;
   final _quantityController = TextEditingController();
-  String _selectedUnit = 'luong';
+  // Không đặt mặc định — bắt user luôn phải bấm chọn tường minh để tránh
+  // nhầm đơn vị (lượng/chỉ/phân/gram) dẫn tới tính sai lãi/lỗ.
+  String? _selectedUnit;
   final _priceController = TextEditingController();
   DateTime _buyDate = DateTime.now();
 
@@ -39,16 +41,35 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     );
   }
 
-  void _completeOnboarding() {
+  Future<void> _completeOnboarding() async {
     final store = context.read<AppStore>();
-    // Add the first purchase if filled
-    if (_selectedGoldTypeId != null &&
+    // Add the first purchase if filled. Fallback về loại vàng đầu tiên nếu
+    // user quên bấm chọn chip (vẫn có ý định thêm vì đã điền số lượng/giá) —
+    // tránh trường hợp âm thầm bỏ qua vì thiếu mỗi bước chọn loại vàng.
+    final goldTypeId = _selectedGoldTypeId ??
+        (store.goldTypes.isNotEmpty ? store.goldTypes.first.id : null);
+    final wantsToAdd = goldTypeId != null &&
         _quantityController.text.isNotEmpty &&
-        _priceController.text.isNotEmpty) {
-      store.addHolding(
-        goldTypeId: _selectedGoldTypeId!,
+        _priceController.text.isNotEmpty;
+
+    if (wantsToAdd) {
+      // Đơn vị không có fallback tự động — bắt user chọn tường minh, khác
+      // với loại vàng (đã fallback ở trên) vì nhầm đơn vị gây sai số tiền.
+      if (_selectedUnit == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Vui lòng chọn đơn vị (lượng/chỉ/phân/gram)'),
+            backgroundColor: AppColors.loss,
+          ),
+        );
+        return;
+      }
+      // Await để đảm bảo holding đã lưu xong trước khi hoàn tất onboarding —
+      // tránh trường hợp AppGate chuyển sang Home trước khi ghi xong dữ liệu.
+      await store.addHolding(
+        goldTypeId: goldTypeId,
         quantity: double.tryParse(_quantityController.text) ?? 0,
-        unit: _selectedUnit,
+        unit: _selectedUnit!,
         buyPricePerUnit: double.tryParse(
               _priceController.text.replaceAll(RegExp(r'[^0-9]'), ''),
             ) ??
@@ -56,7 +77,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
         buyDate: _buyDate,
       );
     }
-    store.completeOnboarding();
+    await store.completeOnboarding();
   }
 
   @override
@@ -310,7 +331,6 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                   if (val) {
                     setState(() {
                       _selectedGoldTypeId = gt.id;
-                      _selectedUnit = gt.defaultUnit;
                     });
                   }
                 },
@@ -346,7 +366,9 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
 
           // Price per unit
           _buildTextField(
-            label: 'Giá mua / ${_unitLabel(_selectedUnit)} (VNĐ)',
+            label: _selectedUnit == null
+                ? 'Giá mua / đơn vị (VNĐ)'
+                : 'Giá mua / ${_unitLabel(_selectedUnit!)} (VNĐ)',
             controller: _priceController,
             hint: 'VD: 116.000.000',
             keyboardType: TextInputType.number,
@@ -428,6 +450,10 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
           ),
           child: DropdownButton<String>(
             value: _selectedUnit,
+            hint: const Text(
+              'Chọn đơn vị',
+              style: TextStyle(color: AppColors.textHint, fontSize: 14),
+            ),
             underline: const SizedBox(),
             isExpanded: true,
             dropdownColor: AppColors.bgCard,
