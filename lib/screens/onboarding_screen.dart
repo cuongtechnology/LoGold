@@ -434,6 +434,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
             items: const [
               DropdownMenuItem(value: 'luong', child: Text('Lượng')),
               DropdownMenuItem(value: 'chi', child: Text('Chỉ')),
+              DropdownMenuItem(value: 'phan', child: Text('Phân')),
               DropdownMenuItem(value: 'gram', child: Text('Gram')),
             ],
             onChanged: (val) {
@@ -547,6 +548,8 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
         return 'lượng';
       case 'chi':
         return 'chỉ';
+      case 'phan':
+        return 'phân';
       case 'gram':
         return 'gram';
       default:

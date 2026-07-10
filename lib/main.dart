@@ -199,13 +199,17 @@ class MainShell extends StatefulWidget {
 class _MainShellState extends State<MainShell> {
   int _currentIndex = 0;
 
-  final _screens = const [
-    HomeScreen(),
-    PortfolioScreen(),
-    PriceTableScreen(),
-    TopLoScreen(),
-    SettingsScreen(),
+  late final _screens = [
+    HomeScreen(onNavigateToTab: _onNavigateToTab),
+    const PortfolioScreen(),
+    const PriceTableScreen(),
+    const TopLoScreen(),
+    const SettingsScreen(),
   ];
+
+  void _onNavigateToTab(int index) {
+    setState(() => _currentIndex = index);
+  }
 
   @override
   Widget build(BuildContext context) {

@@ -608,6 +608,7 @@ class _PriceTableScreenState extends State<PriceTableScreen> {
   double _pricePerUnit(double pricePerLuong, String unit) {
     if (unit == 'luong') return pricePerLuong;
     if (unit == 'chi') return pricePerLuong / 10;
+    if (unit == 'phan') return pricePerLuong / 100;
     if (unit == 'gram') return pricePerLuong / 37.5;
     return pricePerLuong;
   }
@@ -618,6 +619,8 @@ class _PriceTableScreenState extends State<PriceTableScreen> {
         return 'Lượng';
       case 'chi':
         return 'Chỉ';
+      case 'phan':
+        return 'Phân';
       case 'gram':
         return 'Gram';
       default:

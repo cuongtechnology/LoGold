@@ -16,7 +16,10 @@ import 'historical_comparison_screen.dart';
 
 /// Home Dashboard - main screen with portfolio overview, P/L, and meme status.
 class HomeScreen extends StatefulWidget {
-  const HomeScreen({super.key});
+  const HomeScreen({super.key, this.onNavigateToTab});
+
+  /// Gọi để chuyển tab của `MainShell` (vd: bấm "Xem tất cả" → tab Danh mục).
+  final ValueChanged<int>? onNavigateToTab;
 
   @override
   State<HomeScreen> createState() => _HomeScreenState();
@@ -343,7 +346,7 @@ class _HomeScreenState extends State<HomeScreen> {
         SectionHeader(
           title: 'Vàng của bạn',
           actionText: 'Xem tất cả',
-          onAction: () => _navigateToPortfolioTab(context),
+          onAction: _navigateToPortfolioTab,
         ),
         ...holdings.map((h) {
           final result = store.getHoldingResult(h.id);
@@ -399,7 +402,13 @@ class _HomeScreenState extends State<HomeScreen> {
                   ),
                 ),
                 Text(
-                  '${qty.toStringAsFixed(2)} ${unit == 'luong' ? 'lượng' : unit == 'chi' ? 'chỉ' : 'gram'}',
+                  '${qty.toStringAsFixed(2)} ${unit == 'luong'
+                      ? 'lượng'
+                      : unit == 'chi'
+                      ? 'chỉ'
+                      : unit == 'phan'
+                      ? 'phân'
+                      : 'gram'}',
                   style: const TextStyle(
                     color: AppColors.textSecondary,
                     fontSize: 13,
@@ -552,10 +561,8 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  void _navigateToPortfolioTab(BuildContext context) {
-    // Navigate to portfolio tab - since we're inside IndexedStack in MainShell,
-    // we can't directly switch tabs. Instead we just no-op for now.
-    // The bottom nav is always visible for tab switching.
+  void _navigateToPortfolioTab() {
+    widget.onNavigateToTab?.call(1);
   }
 
   String _formatVnd(double value) {

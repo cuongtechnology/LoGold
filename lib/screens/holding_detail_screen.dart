@@ -288,7 +288,7 @@ class _HoldingDetailScreenState extends State<HoldingDetailScreen> {
             'Giá mua / đơn vị',
             privacyMode
                 ? '••••'
-                : '${Formatters.formatVnd(holding.buyPricePerLuong / (holding.unit == 'luong' ? 1 : holding.unit == 'chi' ? 10 : 37.5))}/${GoldUnits.shortLabel(holding.unit)}',
+                : '${Formatters.formatVnd(GoldUnits.priceFromLuong(holding.buyPricePerLuong, holding.unit))}/${GoldUnits.shortLabel(holding.unit)}',
             AppColors.textPrimary,
           ),
           const Divider(color: AppColors.divider, height: 24),
@@ -323,6 +323,7 @@ class _HoldingDetailScreenState extends State<HoldingDetailScreen> {
   Widget _buildUnitConversion(UserHolding holding) {
     final inLuong = holding.quantityInLuong;
     final inChi = GoldUnits.fromLuong(inLuong, 'chi');
+    final inPhan = GoldUnits.fromLuong(inLuong, 'phan');
     final inGram = GoldUnits.fromLuong(inLuong, 'gram');
 
     return AppCard(
@@ -334,6 +335,10 @@ class _HoldingDetailScreenState extends State<HoldingDetailScreen> {
           Container(width: 1, height: 40, color: AppColors.divider),
           Expanded(
             child: _unitColumn('Chỉ', inChi.toStringAsFixed(2)),
+          ),
+          Container(width: 1, height: 40, color: AppColors.divider),
+          Expanded(
+            child: _unitColumn('Phân', inPhan.toStringAsFixed(2)),
           ),
           Container(width: 1, height: 40, color: AppColors.divider),
           Expanded(

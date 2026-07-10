@@ -405,6 +405,7 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
             items: const [
               DropdownMenuItem(value: 'luong', child: Text('Lượng')),
               DropdownMenuItem(value: 'chi', child: Text('Chỉ')),
+              DropdownMenuItem(value: 'phan', child: Text('Phân')),
               DropdownMenuItem(value: 'gram', child: Text('Gram')),
             ],
             onChanged: (val) {

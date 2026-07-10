@@ -10,10 +10,11 @@ class AppConstants {
       'Thông tin chỉ mang tính tham khảo, không phải khuyến nghị mua/bán vàng.';
 
   // Gold unit conversions (Vietnamese standard)
-  // 1 lượng = 10 chỉ = 37.5 gram
-  // 1 chỉ = 3.75 gram
+  // 1 lượng = 10 chỉ = 100 phân = 37.5 gram
+  // 1 chỉ = 10 phân = 3.75 gram
   static const double gramsPerLuong = 37.5;
   static const double chiPerLuong = 10.0;
+  static const double phanPerLuong = 100.0;
   static const double gramsPerChi = 3.75;
 
   // Price update interval (minutes)

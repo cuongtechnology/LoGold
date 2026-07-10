@@ -44,7 +44,7 @@ PortfolioService    PriceService     NotificationService
    │                    │     └─ [adapter thật thêm sau]
    │
    └─ ProfitLossCalculator (pure, stateless)
-   └─ GoldUnits (utils, quy đổi lượng/chỉ/gram)
+   └─ GoldUnits (utils, quy đổi lượng/chỉ/phân/gram)
 ```
 
 Điểm mấu chốt:
@@ -53,7 +53,7 @@ PortfolioService    PriceService     NotificationService
 - **Services là singleton** truy cập qua `.instance` (pattern `_instance ??= _()`). Không dùng DI framework.
 - **`PriceService` dùng adapter pattern** — thêm nguồn giá mới bằng cách implement `PriceAdapter` (`lib/api/price_adapter.dart`) rồi `PriceService.instance.registerAdapter(...)`. Không sửa `PriceService`.
 - **`ProfitLossCalculator` là pure functions** — không state, dễ test riêng. Là nơi định nghĩa công thức nghiệp vụ và bảng ánh xạ P/L% → `MemeCondition` / `EmotionalStatus`.
-- **Đơn vị chuẩn hóa: `lượng`.** Mọi holding lưu cả `quantity` (đơn vị gốc user nhập) lẫn `quantityInLuong` + `buyPricePerLuong` để tính toán nhất quán. Chuyển đổi qua `GoldUnits` (1 lượng = 10 chỉ = 37.5 gram, hằng số ở `AppConstants`).
+- **Đơn vị chuẩn hóa: `lượng`.** Mọi holding lưu cả `quantity` (đơn vị gốc user nhập) lẫn `quantityInLuong` + `buyPricePerLuong` để tính toán nhất quán. Chuyển đổi qua `GoldUnits` (1 lượng = 10 chỉ = 100 phân = 37.5 gram, hằng số ở `AppConstants`).
 
 ### Persistence
 

@@ -1,9 +1,9 @@
 import '../constants/app_constants.dart';
 
 /// Gold unit conversion utilities.
-/// Vietnamese gold units: lượng, chỉ, gram
-/// 1 lượng = 10 chỉ = 37.5 gram
-/// 1 chỉ = 3.75 gram
+/// Vietnamese gold units: lượng, chỉ, phân, gram
+/// 1 lượng = 10 chỉ = 100 phân = 37.5 gram
+/// 1 chỉ = 10 phân = 3.75 gram
 class GoldUnits {
   /// Convert any quantity to lượng (tael) - the base unit for calculations.
   static double toLuong(double quantity, String unit) {
@@ -12,6 +12,8 @@ class GoldUnits {
         return quantity;
       case 'chi':
         return quantity / AppConstants.chiPerLuong;
+      case 'phan':
+        return quantity / AppConstants.phanPerLuong;
       case 'gram':
         return quantity / AppConstants.gramsPerLuong;
       default:
@@ -26,6 +28,8 @@ class GoldUnits {
         return luong;
       case 'chi':
         return luong * AppConstants.chiPerLuong;
+      case 'phan':
+        return luong * AppConstants.phanPerLuong;
       case 'gram':
         return luong * AppConstants.gramsPerLuong;
       default:
@@ -40,7 +44,7 @@ class GoldUnits {
   }
 
   /// Get all supported unit labels.
-  static List<String> get units => ['luong', 'chi', 'gram'];
+  static List<String> get units => ['luong', 'chi', 'phan', 'gram'];
 
   /// Get display label for a unit.
   static String label(String unit) {
@@ -49,6 +53,8 @@ class GoldUnits {
         return 'Lượng';
       case 'chi':
         return 'Chỉ';
+      case 'phan':
+        return 'Phân';
       case 'gram':
         return 'Gram';
       default:
@@ -63,6 +69,8 @@ class GoldUnits {
         return 'lượng';
       case 'chi':
         return 'chỉ';
+      case 'phan':
+        return 'phân';
       case 'gram':
         return 'g';
       default:
