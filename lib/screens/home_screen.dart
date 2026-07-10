@@ -58,6 +58,9 @@ class _HomeScreenState extends State<HomeScreen> {
                 SliverToBoxAdapter(child: _buildPortfolioCard(summary, privacyMode)),
                 SliverToBoxAdapter(child: _buildStatusSection(summary)),
                 SliverToBoxAdapter(child: _buildMemeSection(summary)),
+                // Xen giữa 2 section thuần hiển thị (không nút bấm) để tránh
+                // click nhầm — theo chính sách khoảng cách ad của AdMob/Play.
+                const SliverToBoxAdapter(child: BannerAdWidget()),
                 SliverToBoxAdapter(child: _buildHoldingsPreview(store, summary)),
                 SliverToBoxAdapter(child: _buildQuickActions(store)),
                 const SliverToBoxAdapter(child: BannerAdWidget()),

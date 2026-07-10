@@ -7,6 +7,7 @@ import '../components/ui_components.dart';
 import '../utils/formatters.dart';
 import '../services/profit_loss_calculator.dart';
 import '../services/meme_engine.dart';
+import '../components/banner_ad_widget.dart';
 import '../models/user_holding.dart';
 import 'add_purchase_screen.dart';
 import 'holding_detail_screen.dart';
@@ -72,8 +73,11 @@ class _PortfolioScreenState extends State<PortfolioScreen> {
                   ? _buildEmptyState()
                   : ListView.builder(
                       padding: const EdgeInsets.only(bottom: 80),
-                      itemCount: holdings.length,
+                      itemCount: holdings.length + 1,
                       itemBuilder: (context, index) {
+                        if (index == holdings.length) {
+                          return const BannerAdWidget();
+                        }
                         final holding = holdings[index];
                         return _buildHoldingCard(
                           context,

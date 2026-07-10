@@ -10,6 +10,7 @@ import '../models/gold_type.dart';
 import '../models/historical_gold_price.dart';
 import '../api/price_adapter.dart';
 import '../services/meme_engine.dart';
+import '../components/banner_ad_widget.dart';
 import 'price_alert_screen.dart';
 
 /// Gold Price Table Screen - Shows current buy/sell prices for all gold types.
@@ -116,6 +117,7 @@ class _PriceTableScreenState extends State<PriceTableScreen> {
                     ),
                   ),
               ],
+              const SliverToBoxAdapter(child: BannerAdWidget()),
               // Bottom padding
               const SliverToBoxAdapter(child: SizedBox(height: 16)),
               // Disclaimer

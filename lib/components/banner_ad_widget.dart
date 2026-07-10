@@ -28,16 +28,21 @@ class _BannerAdWidgetState extends State<BannerAdWidget> {
     // bắt đầu — await ở đây để không tạo banner trước khi SDK sẵn sàng.
     await AdService.instance.init();
     if (!mounted) return;
-    setState(() {
-      _ad = AdService.instance.createBanner(
-        onLoaded: () {
-          if (mounted) setState(() => _loaded = true);
-        },
-        onFailed: () {
-          if (mounted) setState(() => _ad = null);
-        },
-      );
-    });
+    final width = MediaQuery.sizeOf(context).width.truncate();
+    final ad = await AdService.instance.createBanner(
+      width: width,
+      onLoaded: () {
+        if (mounted) setState(() => _loaded = true);
+      },
+      onFailed: () {
+        if (mounted) setState(() => _ad = null);
+      },
+    );
+    if (!mounted) {
+      ad?.dispose();
+      return;
+    }
+    setState(() => _ad = ad);
   }
 
   @override

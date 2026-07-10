@@ -49,16 +49,23 @@ class AdService {
   /// Tạo 1 banner ad mới đã gọi `load()`. Mỗi vị trí hiển thị cần 1 instance
   /// riêng (không share instance giữa nhiều widget). Trả null nếu SDK chưa
   /// init được hoặc platform không hỗ trợ.
-  BannerAd? createBanner({
+  ///
+  /// Dùng Adaptive Banner (co giãn hết [width], Google tự chọn chiều cao tối
+  /// ưu) thay vì `AdSize.banner` cố định 320×50 — Google khuyến nghị format
+  /// này để tăng fill rate/doanh thu trên mọi kích thước màn hình.
+  Future<BannerAd?> createBanner({
+    required int width,
     required VoidCallback onLoaded,
     required VoidCallback onFailed,
-  }) {
+  }) async {
     if (!_initialized || bannerAdUnitId.isEmpty) {
       return null;
     }
+    final size = await AdSize.getLargeAnchoredAdaptiveBannerAdSize(width);
+    if (size == null) return null;
     return BannerAd(
       adUnitId: bannerAdUnitId,
-      size: AdSize.banner,
+      size: size,
       request: const AdRequest(),
       listener: BannerAdListener(
         onAdLoaded: (_) => onLoaded(),

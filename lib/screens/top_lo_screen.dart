@@ -7,6 +7,7 @@ import '../components/ui_components.dart';
 import '../utils/formatters.dart';
 import '../services/meme_engine.dart';
 import '../services/profit_loss_calculator.dart';
+import '../components/banner_ad_widget.dart';
 import 'holding_detail_screen.dart';
 
 /// Top Lỗ Screen - ranks the user's active holdings by P/L%, deepest loss first.
@@ -44,21 +45,24 @@ class TopLoScreen extends StatelessWidget {
               SliverToBoxAdapter(child: _buildHeader(store, actualLosers)),
               if (losers.isEmpty)
                 SliverFillRemaining(child: _buildEmptyState())
-              else if (actualLosers.isEmpty)
-                SliverToBoxAdapter(child: _buildAllProfitBanner())
-              else
-                SliverList(
-                  delegate: SliverChildBuilderDelegate(
-                    (context, index) => _buildLoserRow(
-                      context,
-                      index + 1,
-                      losers[index],
-                      store,
-                      privacyMode,
+              else ...[
+                if (actualLosers.isEmpty)
+                  SliverToBoxAdapter(child: _buildAllProfitBanner())
+                else
+                  SliverList(
+                    delegate: SliverChildBuilderDelegate(
+                      (context, index) => _buildLoserRow(
+                        context,
+                        index + 1,
+                        losers[index],
+                        store,
+                        privacyMode,
+                      ),
+                      childCount: losers.length,
                     ),
-                    childCount: losers.length,
                   ),
-                ),
+                const SliverToBoxAdapter(child: BannerAdWidget()),
+              ],
               const SliverToBoxAdapter(child: SizedBox(height: 16)),
               const SliverToBoxAdapter(child: DisclaimerBar()),
             ],
