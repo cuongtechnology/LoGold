@@ -1,6 +1,9 @@
 # Claude Code local session config — máy/phiên cụ thể, không thuộc project.
 .claude/
 
+# Cloudflare API token lưu tạm để deploy worker — TUYỆT ĐỐI không commit.
+/CloudflareWorkerToken
+
 # Miscellaneous
 *.class
 *.log
