@@ -65,6 +65,19 @@ android {
             } else {
                 signingConfigs.getByName("debug")
             }
+
+            // R8 (rút gọn code + tài nguyên) — Play Console báo thiếu mục
+            // này ở phần "Tối ưu hoá ứng dụng". BẮT BUỘC smoke-test bản APK
+            // release trên thiết bị/emulator thật trước khi nộp Play Store:
+            // R8 có thể âm thầm strip class dùng qua reflection (push
+            // notification, AdMob) — lỗi này build vẫn thành công nhưng
+            // crash lúc chạy thật, không phát hiện được lúc compile.
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro",
+            )
         }
     }
 }
