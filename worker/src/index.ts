@@ -94,6 +94,14 @@ export default {
       return corsResponse(json({ ok: true, cacheKey: CACHE_KEY }));
     }
 
+    // Chỉ trả về SỐ LƯỢNG token đã đăng ký (không lộ token thật) — dùng để
+    // kiểm tra nhanh xem đã có thiết bị nào đăng ký push chưa trước khi gọi
+    // /test-notify. Giới hạn 1000 giống sendFcmToAll (list() không phân trang).
+    if (request.method === 'GET' && url.pathname === '/token-count') {
+      const list = await env.LO_PRICE_CACHE.list({ prefix: TOKEN_PREFIX });
+      return corsResponse(json({ count: list.keys.length }));
+    }
+
     if (request.method === 'POST' && url.pathname === '/register-token') {
       return corsResponse(await handleRegisterToken(request, env));
     }
