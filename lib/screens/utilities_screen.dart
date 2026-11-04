@@ -6,10 +6,14 @@ import '../stores/app_store.dart';
 import '../components/ui_components.dart';
 import '../utils/gold_units.dart';
 import '../utils/formatters.dart';
+import 'more_calculators.dart';
 
 /// Utilities screen - unit converter, buy/sell calculator, breakeven calculator.
 class UtilitiesScreen extends StatefulWidget {
-  const UtilitiesScreen({super.key});
+  /// Tab to open first; use the [UtilityTab] constants.
+  final int initialTab;
+
+  const UtilitiesScreen({super.key, this.initialTab = UtilityTab.unitConverter});
 
   @override
   State<UtilitiesScreen> createState() => _UtilitiesScreenState();
@@ -22,7 +26,11 @@ class _UtilitiesScreenState extends State<UtilitiesScreen>
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 3, vsync: this);
+    _tabController = TabController(
+      length: 8,
+      vsync: this,
+      initialIndex: widget.initialTab,
+    );
   }
 
   @override
@@ -41,10 +49,17 @@ class _UtilitiesScreenState extends State<UtilitiesScreen>
           indicatorColor: AppColors.gold,
           labelColor: AppColors.gold,
           unselectedLabelColor: AppColors.textHint,
+          isScrollable: true,
+          tabAlignment: TabAlignment.start,
           tabs: const [
             Tab(text: 'Đổi đơn vị'),
             Tab(text: 'Mua/Bán'),
             Tab(text: 'Hòa vốn'),
+            Tab(text: 'Chốt lời'),
+            Tab(text: 'Giá bình quân'),
+            Tab(text: 'Mua được bao nhiêu'),
+            Tab(text: 'Vàng vs Tiết kiệm'),
+            Tab(text: 'Chênh lệch'),
           ],
         ),
       ),
@@ -55,11 +70,28 @@ class _UtilitiesScreenState extends State<UtilitiesScreen>
             _UnitConverterTab(),
             const _BuySellCalculatorTab(),
             _BreakevenCalculatorTab(),
+            const TargetProfitTab(),
+            const AverageCostTab(),
+            const BudgetTab(),
+            const SavingsCompareTab(),
+            const SpreadTab(),
           ],
         ),
       ),
     );
   }
+}
+
+/// Tab indexes of [UtilitiesScreen], for deep links from the home screen.
+abstract final class UtilityTab {
+  static const unitConverter = 0;
+  static const buySell = 1;
+  static const breakeven = 2;
+  static const targetProfit = 3;
+  static const averageCost = 4;
+  static const budget = 5;
+  static const savings = 6;
+  static const spread = 7;
 }
 
 // =================== Tab 1: Unit Converter ===================
@@ -75,7 +107,7 @@ class _UnitConverterTabState extends State<_UnitConverterTab> {
   String _toUnit = 'gram';
 
   double _getConverted() {
-    final input = double.tryParse(_inputCtrl.text) ?? 0;
+    final input = Formatters.parseQuantity(_inputCtrl.text) ?? 0;
     return GoldUnits.convert(input, _fromUnit, _toUnit);
   }
 
@@ -282,7 +314,7 @@ class _UnitConverterTabState extends State<_UnitConverterTab> {
   }
 
   List<Widget> _buildConversionTable() {
-    final input = double.tryParse(_inputCtrl.text) ?? 0;
+    final input = Formatters.parseQuantity(_inputCtrl.text) ?? 0;
     final results = <Widget>[];
 
     for (final unit in GoldUnits.units) {
@@ -340,9 +372,9 @@ class _BuySellCalculatorTabState extends State<_BuySellCalculatorTab> {
     super.dispose();
   }
 
-  double get _pricePerUnit => double.tryParse(_priceCtrl.text) ?? 0;
-  double get _quantity => double.tryParse(_quantityCtrl.text) ?? 0;
-  double get _fee => double.tryParse(_feeCtrl.text) ?? 0;
+  double get _pricePerUnit => Formatters.parseMoney(_priceCtrl.text) ?? 0;
+  double get _quantity => Formatters.parseQuantity(_quantityCtrl.text) ?? 0;
+  double get _fee => Formatters.parseMoney(_feeCtrl.text) ?? 0;
 
   double get _quantityInLuong => GoldUnits.toLuong(_quantity, _unit);
   double get _pricePerLuong => GoldUnits.pricePerLuong(_pricePerUnit, _unit);
@@ -698,9 +730,9 @@ class _BreakevenCalculatorTabState extends State<_BreakevenCalculatorTab> {
     super.dispose();
   }
 
-  double get _totalCost => double.tryParse(_totalCostCtrl.text) ?? 0;
-  double get _quantity => double.tryParse(_quantityCtrl.text) ?? 0;
-  double get _currentPrice => double.tryParse(_currentPriceCtrl.text) ?? 0;
+  double get _totalCost => Formatters.parseMoney(_totalCostCtrl.text) ?? 0;
+  double get _quantity => Formatters.parseQuantity(_quantityCtrl.text) ?? 0;
+  double get _currentPrice => Formatters.parseMoney(_currentPriceCtrl.text) ?? 0;
 
   double get _quantityInLuong => GoldUnits.toLuong(_quantity, _unit);
   double get _breakevenPricePerLuong =>

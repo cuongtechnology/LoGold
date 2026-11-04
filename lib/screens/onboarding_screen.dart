@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import '../constants/app_constants.dart';
 import '../stores/app_store.dart';
 import '../components/ui_components.dart';
+import '../utils/formatters.dart';
 
 /// Onboarding screen - introduces the app and lets user add their first gold purchase.
 class OnboardingScreen extends StatefulWidget {
@@ -68,12 +69,9 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
       // tránh trường hợp AppGate chuyển sang Home trước khi ghi xong dữ liệu.
       await store.addHolding(
         goldTypeId: goldTypeId,
-        quantity: double.tryParse(_quantityController.text) ?? 0,
+        quantity: Formatters.parseQuantity(_quantityController.text) ?? 0,
         unit: _selectedUnit!,
-        buyPricePerUnit: double.tryParse(
-              _priceController.text.replaceAll(RegExp(r'[^0-9]'), ''),
-            ) ??
-            0,
+        buyPricePerUnit: Formatters.parseMoney(_priceController.text) ?? 0,
         buyDate: _buyDate,
       );
     }

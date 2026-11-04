@@ -13,6 +13,7 @@ import 'holding_detail_screen.dart';
 import 'utilities_screen.dart';
 import 'charts_screen.dart';
 import 'historical_comparison_screen.dart';
+import 'price_alert_screen.dart';
 
 /// Home Dashboard - main screen with portfolio overview, P/L, and meme status.
 class HomeScreen extends StatefulWidget {
@@ -50,11 +51,14 @@ class _HomeScreenState extends State<HomeScreen> {
                     child: CircularProgressIndicator(color: AppColors.gold),
                   ),
                 )
-              else if (summary == null || summary.holdingCount == 0)
-                SliverFillRemaining(
-                  child: _buildEmptyState(store),
-                )
-              else ...[
+              else if (summary == null || summary.holdingCount == 0) ...[
+                SliverToBoxAdapter(
+                  child: SizedBox(height: 320, child: _buildEmptyState(store)),
+                ),
+                // Tools like the unit converter are useful before any purchase.
+                SliverToBoxAdapter(child: _buildQuickActions()),
+                const SliverToBoxAdapter(child: SizedBox(height: 80)),
+              ] else ...[
                 SliverToBoxAdapter(child: _buildPortfolioCard(summary, privacyMode)),
                 SliverToBoxAdapter(child: _buildStatusSection(summary)),
                 SliverToBoxAdapter(child: _buildMemeSection(summary)),
@@ -62,7 +66,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 // click nhầm — theo chính sách khoảng cách ad của AdMob/Play.
                 const SliverToBoxAdapter(child: BannerAdWidget()),
                 SliverToBoxAdapter(child: _buildHoldingsPreview(store, summary)),
-                SliverToBoxAdapter(child: _buildQuickActions(store)),
+                SliverToBoxAdapter(child: _buildQuickActions()),
                 const SliverToBoxAdapter(child: BannerAdWidget()),
                 const SliverToBoxAdapter(child: SizedBox(height: 80)),
               ],
@@ -451,88 +455,76 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Widget _buildQuickActions(AppStore store) {
+  Widget _buildQuickActions() {
+    void openUtility(int tab) => Navigator.push(
+          context,
+          MaterialPageRoute(builder: (_) => UtilitiesScreen(initialTab: tab)),
+        );
+    void open(Widget screen) => Navigator.push(
+          context,
+          MaterialPageRoute(builder: (_) => screen),
+        );
+
+    final actions = <_QuickAction>[
+      _QuickAction('🧮', 'Đổi đơn vị', () => openUtility(UtilityTab.unitConverter)),
+      _QuickAction('💰', 'Mua/Bán nhanh', () => openUtility(UtilityTab.buySell)),
+      _QuickAction('⚖️', 'Giá hòa vốn', () => openUtility(UtilityTab.breakeven)),
+      _QuickAction('🎯', 'Giá chốt lời', () => openUtility(UtilityTab.targetProfit)),
+      _QuickAction('📊', 'Giá bình quân', () => openUtility(UtilityTab.averageCost)),
+      _QuickAction('🛒', 'Mua được bao nhiêu', () => openUtility(UtilityTab.budget)),
+      _QuickAction('🏦', 'Vàng vs Tiết kiệm', () => openUtility(UtilityTab.savings)),
+      _QuickAction('↔️', 'Chênh lệch mua bán', () => openUtility(UtilityTab.spread)),
+      _QuickAction('📈', 'Biểu đồ', () => open(const ChartsScreen())),
+      _QuickAction('📜', 'So sánh lịch sử', () => open(const HistoricalComparisonScreen())),
+      _QuickAction('🔔', 'Cảnh báo giá', () => open(const PriceAlertScreen())),
+      _QuickAction('🏆', 'Top Lỗ', () => widget.onNavigateToTab?.call(3)),
+    ];
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         const SectionHeader(title: 'Tiện ích nhanh'),
-        SingleChildScrollView(
-          scrollDirection: Axis.horizontal,
+        GridView.count(
+          crossAxisCount: 4,
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
           padding: const EdgeInsets.symmetric(horizontal: 16),
-          child: Row(
-            children: [
-              _quickAction('🧮', 'Đổi đơn vị', () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => const UtilitiesScreen(),
-                  ),
-                );
-              }),
-              _quickAction('💰', 'Mua/Bán nhanh', () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => const UtilitiesScreen(),
-                  ),
-                );
-              }),
-              _quickAction('⚖️', 'Giá hòa vốn', () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => const UtilitiesScreen(),
-                  ),
-                );
-              }),
-              _quickAction('📈', 'Biểu đồ', () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => const ChartsScreen(),
-                  ),
-                );
-              }),
-              _quickAction('📜', 'So sánh lịch sử', () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => const HistoricalComparisonScreen(),
-                  ),
-                );
-              }),
-            ],
-          ),
+          mainAxisSpacing: 10,
+          crossAxisSpacing: 10,
+          childAspectRatio: 0.82,
+          children: actions.map(_quickActionTile).toList(),
         ),
       ],
     );
   }
 
-  Widget _quickAction(String emoji, String label, VoidCallback onTap) {
-    return Padding(
-      padding: const EdgeInsets.only(right: 12),
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(12),
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-          decoration: BoxDecoration(
-            color: AppColors.bgCard,
-            borderRadius: BorderRadius.circular(12),
-          ),
-          child: Column(
-            children: [
-              Text(emoji, style: const TextStyle(fontSize: 28)),
-              const SizedBox(height: 4),
-              Text(
-                label,
-                style: const TextStyle(
-                  color: AppColors.textSecondary,
-                  fontSize: 12,
-                ),
+  Widget _quickActionTile(_QuickAction action) {
+    return InkWell(
+      onTap: action.onTap,
+      borderRadius: BorderRadius.circular(12),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
+        decoration: BoxDecoration(
+          color: AppColors.bgCard,
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Text(action.emoji, style: const TextStyle(fontSize: 26)),
+            const SizedBox(height: 6),
+            Text(
+              action.label,
+              textAlign: TextAlign.center,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                color: AppColors.textSecondary,
+                fontSize: 11,
+                height: 1.2,
               ),
-            ],
-          ),
+            ),
+          ],
         ),
       ),
     );
@@ -587,3 +579,10 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 }
 
+class _QuickAction {
+  final String emoji;
+  final String label;
+  final VoidCallback onTap;
+
+  const _QuickAction(this.emoji, this.label, this.onTap);
+}
