@@ -30,6 +30,12 @@ import 'screens/settings_screen.dart';
 /// chính, `VangTodayPriceAdapter` mới là nguồn giá mặc định).
 const _kWorkerUrl = String.fromEnvironment('LO_WORKER_URL', defaultValue: '');
 
+/// Chế độ demo để chụp ảnh màn hình cho store (CI chạy trên iOS Simulator):
+///   flutter build ios --simulator --dart-define=LO_DEMO=true
+/// Tự nạp vài lần mua mẫu, bỏ qua onboarding và tự chuyển tab. Hằng số
+/// compile-time nên bản phát hành không chứa nhánh code này.
+const _kDemo = bool.fromEnvironment('LO_DEMO');
+
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await StorageService.init();
@@ -161,6 +167,39 @@ class _AppGateState extends State<_AppGate> with WidgetsBindingObserver {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    if (_kDemo) unawaited(_seedDemo(context.read<AppStore>()));
+  }
+
+  Future<void> _seedDemo(AppStore store) async {
+    while (store.isLoading) {
+      await Future<void>.delayed(const Duration(milliseconds: 200));
+    }
+    if (store.holdings.isEmpty) {
+      await store.addHolding(
+        goldTypeId: 'sjc',
+        quantity: 2,
+        unit: 'luong',
+        buyPricePerUnit: 118500000,
+        buyDate: DateTime(2026, 3, 12),
+        note: 'Mua tích sản',
+      );
+      await store.addHolding(
+        goldTypeId: 'ring_9999',
+        quantity: 5,
+        unit: 'chi',
+        buyPricePerUnit: 13450000,
+        buyDate: DateTime(2026, 10, 28),
+        note: 'Mua đỉnh',
+      );
+      await store.addHolding(
+        goldTypeId: 'sjc',
+        quantity: 1,
+        unit: 'luong',
+        buyPricePerUnit: 124000000,
+        buyDate: DateTime(2026, 6, 20),
+      );
+    }
+    if (!store.isOnboarded) await store.completeOnboarding();
   }
 
   @override
@@ -207,6 +246,23 @@ class MainShell extends StatefulWidget {
 
 class _MainShellState extends State<MainShell> {
   int _currentIndex = 0;
+  Timer? _demoTimer;
+
+  @override
+  void initState() {
+    super.initState();
+    if (_kDemo) {
+      _demoTimer = Timer.periodic(const Duration(seconds: 10), (_) {
+        setState(() => _currentIndex = (_currentIndex + 1) % _screens.length);
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    _demoTimer?.cancel();
+    super.dispose();
+  }
 
   late final _screens = [
     HomeScreen(onNavigateToTab: _onNavigateToTab),

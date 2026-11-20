@@ -17,14 +17,14 @@ class AdService {
   Future<void>? _initFuture;
 
   /// Banner ad unit ID theo platform.
-  /// TODO: thay ID iOS bằng Ad Unit thật khi có app iOS riêng trên AdMob Console.
+  /// iOS: chưa có app iOS trên AdMob nên trả rỗng → không khởi tạo SDK, không
+  /// hiện quảng cáo, không cần hộp thoại xin quyền theo dõi (ATT). Khi có Ad
+  /// Unit thật: trả ID ở đây, thay `GADApplicationIdentifier` trong
+  /// `ios/Runner/Info.plist` và thêm ATT.
   static String get bannerAdUnitId {
     if (kIsWeb) return ''; // AdMob web cần setup riêng, chưa hỗ trợ ở đây.
     if (defaultTargetPlatform == TargetPlatform.android) {
       return 'ca-app-pub-8197625767029457/4645135209';
-    }
-    if (defaultTargetPlatform == TargetPlatform.iOS) {
-      return 'ca-app-pub-3940256099942544/2934735716'; // Test ID của Google.
     }
     return '';
   }

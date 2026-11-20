@@ -18,6 +18,10 @@ on:
         description: 'Build iOS (có secret thì ký và đẩy lên TestFlight)'
         type: boolean
         default: true
+      ios_screenshots:
+        description: 'Chụp ảnh màn hình App Store trên iOS Simulator (chế độ demo)'
+        type: boolean
+        default: false
 
 env:
   # pubspec.lock yêu cầu Flutter >= 3.44 (Dart >= 3.12).
@@ -313,6 +317,62 @@ jobs:
       - name: Dọn keychain
         if: always() && steps.signing.outputs.enabled == 'true'
         run: keychain use-login || true
+
+  # Ảnh chụp màn hình cho App Store: build bản demo (LO_DEMO) cho Simulator
+  # iPhone Pro Max (6.9"), app tự nạp dữ liệu mẫu và tự chuyển tab 10 giây một
+  # lần; cứ 2 giây chụp 1 ảnh rồi chọn ảnh đẹp từ artifact.
+  ios-screenshots:
+    name: iOS screenshots
+    if: github.event_name == 'workflow_dispatch' && inputs.ios_screenshots
+    runs-on: macos-latest
+    needs: [analyze]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+
+      - uses: subosito/flutter-action@v2.19.0
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: ${{ env.FLUTTER_CHANNEL }}
+          cache: true
+
+      - run: flutter pub get
+
+      - name: Build demo app cho Simulator
+        run: flutter build ios --simulator --dart-define=LO_DEMO=true
+
+      - name: Chụp ảnh trên Simulator
+        run: |
+          xcrun simctl list devices available
+          UDID=$(xcrun simctl list devices available -j | python3 -c "
+          import json, sys
+          devices = json.load(sys.stdin)['devices']
+          found = [d for runtime in sorted(devices) if 'iOS' in runtime
+                   for d in devices[runtime] if 'Pro Max' in d['name']]
+          print(found[-1]['udid'])")
+          echo "Simulator: $UDID"
+          xcrun simctl boot "$UDID"
+          xcrun simctl bootstatus "$UDID" -b
+          xcrun simctl status_bar "$UDID" override --time "9:41" \
+            --batteryState charged --batteryLevel 100 --cellularBars 4 --wifiBars 3
+          xcrun simctl install "$UDID" build/ios/iphonesimulator/Runner.app
+          xcrun simctl launch "$UDID" vn.lo.app
+          mkdir -p shots
+          sleep 15
+          for i in $(seq -w 1 50); do
+            xcrun simctl io "$UDID" screenshot "shots/$i.png" >/dev/null 2>&1 || true
+            sleep 2
+          done
+          ls -la shots | head -60
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ios-screenshots-${{ github.run_number }}
+          path: shots/*.png
+          retention-days: 14
 
   release:
     name: GitHub Release
