@@ -2,6 +2,8 @@
     <uses-permission android:name="android.permission.INTERNET"/>
     <!-- Android 13+ (API 33) yêu cầu quyền này để hiện notification (push giá vàng). -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
+    <!-- Mở khoá bằng vân tay / khuôn mặt (local_auth). -->
+    <uses-permission android:name="android.permission.USE_BIOMETRIC"/>
     <application
         android:label="Lỗ nhiều chưa?"
         android:name="${applicationName}"

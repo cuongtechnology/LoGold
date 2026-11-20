@@ -6,16 +6,21 @@ on:
     tags: ['v*']
   pull_request:
     branches: [main]
+  # Chạy tay (tab Actions → Build → Run workflow): build đủ cả iOS, và nếu
+  # đã khai báo secret App Store Connect thì upload luôn lên TestFlight.
   workflow_dispatch:
 
 env:
-  FLUTTER_VERSION: '3.35.4'
+  # pubspec.lock yêu cầu Flutter >= 3.44 (Dart >= 3.12).
+  FLUTTER_VERSION: '3.47.5'
   FLUTTER_CHANNEL: 'stable'
   JAVA_VERSION: '17'
   # URL công khai của Cloudflare Worker (không phải secret) — cần truyền vào
   # lúc build release để app đăng ký FCM token, nếu không push notification
   # sẽ báo "Đã bật, chưa kết nối server gửi thông báo" dù có quyền OS.
   LO_WORKER_URL: 'https://lo-gold-proxy.webjscloud.workers.dev'
+  # Flutter 3.47 yêu cầu AGP >= 8.11.1, project đang dùng 8.9.1.
+  ANDROID_BUILD_FLAGS: '--android-skip-build-dependency-validation'
 
 jobs:
   analyze:
@@ -98,6 +103,8 @@ jobs:
     name: Build Android APK
     runs-on: ubuntu-latest
     needs: [analyze]
+    env:
+      ANDROID_KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_B64 }}
     steps:
       - uses: actions/checkout@v4
 
@@ -127,15 +134,13 @@ jobs:
       - run: flutter pub get
 
       - name: Build debug APK
-        run: flutter build apk --debug
+        run: flutter build apk --debug $ANDROID_BUILD_FLAGS
 
       # Setup release signing khi tag v* + có secret ANDROID_KEYSTORE_B64.
       # Nếu secret rỗng → key.properties không tồn tại → build.gradle.kts
       # fallback debug key → APK release vẫn có nhưng unsigned.
       - name: Decode release keystore
         if: startsWith(github.ref, 'refs/tags/v') && env.ANDROID_KEYSTORE_B64 != ''
-        env:
-          ANDROID_KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_B64 }}
         run: |
           echo "$ANDROID_KEYSTORE_B64" | base64 -d > android/app/lo-release.jks
           cat > android/key.properties <<EOF
@@ -147,13 +152,13 @@ jobs:
 
       - name: Build release APK (tag only)
         if: startsWith(github.ref, 'refs/tags/v')
-        run: flutter build apk --release --dart-define=LO_WORKER_URL=${{ env.LO_WORKER_URL }}
+        run: flutter build apk --release $ANDROID_BUILD_FLAGS --dart-define=LO_WORKER_URL=${{ env.LO_WORKER_URL }}
 
       # Google Play Console bắt buộc .aab (Android App Bundle) để nộp app
       # mới — .apk ở trên chỉ dùng để cài thử/phân phối ngoài Play Store.
       - name: Build release AAB cho Play Store (tag only)
         if: startsWith(github.ref, 'refs/tags/v')
-        run: flutter build appbundle --release --dart-define=LO_WORKER_URL=${{ env.LO_WORKER_URL }}
+        run: flutter build appbundle --release $ANDROID_BUILD_FLAGS --dart-define=LO_WORKER_URL=${{ env.LO_WORKER_URL }}
 
       - uses: actions/upload-artifact@v4
         with:
@@ -175,16 +180,34 @@ jobs:
           path: build/app/outputs/bundle/release/app-release.aab
           retention-days: 30
 
-  # Chỉ chạy khi push tag v* — build IPA unsigned và upload.
-  # Muốn IPA signed cho App Store: thêm secrets APPLE_CERT_P12, APPLE_CERT_PASSWORD,
-  # PROVISIONING_PROFILE và mở khối signed bên dưới.
+  # iOS — chạy khi push tag v* hoặc chạy tay (workflow_dispatch).
+  #
+  # Có đủ 4 secret dưới đây → ký app bằng chứng chỉ Apple Distribution, build
+  # IPA và upload lên App Store Connect (TestFlight). Thiếu → chỉ build IPA
+  # chưa ký để kiểm tra. Cách tạo secret: docs/BUILD.md mục 7.
+  #   APP_STORE_CONNECT_ISSUER_ID       Issuer ID của API key
+  #   APP_STORE_CONNECT_KEY_IDENTIFIER  Key ID
+  #   APP_STORE_CONNECT_PRIVATE_KEY     Nội dung file AuthKey_XXXX.p8
+  #   CERTIFICATE_PRIVATE_KEY           RSA private key (PEM) của chứng chỉ
   build-ios:
-    name: Build iOS IPA (unsigned)
-    if: startsWith(github.ref, 'refs/tags/v')
+    name: Build iOS IPA
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
     runs-on: macos-latest
     needs: [analyze]
+    env:
+      BUNDLE_ID: 'vn.lo.app'
+      # codemagic-cli-tools đọc trực tiếp các biến môi trường này.
+      APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+      APP_STORE_CONNECT_KEY_IDENTIFIER: ${{ secrets.APP_STORE_CONNECT_KEY_IDENTIFIER }}
+      APP_STORE_CONNECT_PRIVATE_KEY: ${{ secrets.APP_STORE_CONNECT_PRIVATE_KEY }}
+      CERTIFICATE_PRIVATE_KEY: ${{ secrets.CERTIFICATE_PRIVATE_KEY }}
     steps:
       - uses: actions/checkout@v4
+
+      # App Store Connect chỉ nhận build từ Xcode/iOS SDK đủ mới.
+      - uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
 
       - uses: subosito/flutter-action@v2.19.0
         with:
@@ -197,22 +220,90 @@ jobs:
 
       - run: flutter pub get
 
+      - name: Kiểm tra secret ký app
+        id: signing
+        run: |
+          if [ -n "$APP_STORE_CONNECT_PRIVATE_KEY" ] && [ -n "$CERTIFICATE_PRIVATE_KEY" ] \
+             && [ -n "$APP_STORE_CONNECT_ISSUER_ID" ] && [ -n "$APP_STORE_CONNECT_KEY_IDENTIFIER" ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::Thiếu secret App Store Connect — chỉ build IPA chưa ký."
+          fi
+
+      # ── Không ký ──────────────────────────────────────────────────
       - name: Build iOS (no codesign)
-        run: flutter build ios --release --no-codesign
+        if: steps.signing.outputs.enabled != 'true'
+        run: flutter build ios --release --no-codesign --dart-define=LO_WORKER_URL=${{ env.LO_WORKER_URL }}
 
       - name: Package unsigned IPA
+        if: steps.signing.outputs.enabled != 'true'
         run: |
           cd build/ios/iphoneos
           mkdir -p Payload
           cp -r Runner.app Payload/
-          zip -qr ../../../lo-${{ github.ref_name }}-unsigned.ipa Payload
+          zip -qr ../../../lo-ios-${{ github.run_number }}-unsigned.ipa Payload
           rm -rf Payload
 
       - uses: actions/upload-artifact@v4
+        if: steps.signing.outputs.enabled != 'true'
         with:
-          name: ipa-unsigned-${{ github.ref_name }}
-          path: lo-${{ github.ref_name }}-unsigned.ipa
+          name: ipa-unsigned-${{ github.run_number }}
+          path: lo-ios-${{ github.run_number }}-unsigned.ipa
           retention-days: 30
+
+      # ── Ký app + TestFlight ───────────────────────────────────────
+      - uses: actions/setup-python@v5
+        if: steps.signing.outputs.enabled == 'true'
+        with:
+          python-version: '3.12'
+
+      - name: Cài codemagic-cli-tools
+        if: steps.signing.outputs.enabled == 'true'
+        run: pip install codemagic-cli-tools
+
+      # Tạo keychain tạm, lấy (hoặc tạo mới nếu chưa có) chứng chỉ Apple
+      # Distribution + provisioning profile App Store cho BUNDLE_ID qua App
+      # Store Connect API, rồi gắn profile vào project Xcode. Bước cuối ghi
+      # ~/export_options.plist cho `flutter build ipa`.
+      - name: Setup iOS signing
+        if: steps.signing.outputs.enabled == 'true'
+        run: |
+          keychain initialize
+          app-store-connect fetch-signing-files "$BUNDLE_ID" \
+            --type IOS_APP_STORE \
+            --create
+          keychain add-certificates
+          xcode-project use-profiles
+
+      # Build number = số lần chạy workflow, luôn tăng nên App Store Connect
+      # không từ chối. Version name lấy từ pubspec.yaml.
+      - name: Build signed IPA
+        if: steps.signing.outputs.enabled == 'true'
+        run: |
+          flutter build ipa --release \
+            --build-number=${{ github.run_number }} \
+            --export-options-plist="$HOME/export_options.plist" \
+            --dart-define=LO_WORKER_URL=${{ env.LO_WORKER_URL }}
+
+      - name: Upload lên App Store Connect (TestFlight)
+        if: steps.signing.outputs.enabled == 'true'
+        run: app-store-connect publish --path "$(ls build/ios/ipa/*.ipa | head -1)"
+
+      - name: Đổi tên IPA đã ký
+        if: steps.signing.outputs.enabled == 'true'
+        run: cp build/ios/ipa/*.ipa "lo-ios-${{ github.run_number }}.ipa"
+
+      - uses: actions/upload-artifact@v4
+        if: steps.signing.outputs.enabled == 'true'
+        with:
+          name: ipa-signed-${{ github.run_number }}
+          path: lo-ios-${{ github.run_number }}.ipa
+          retention-days: 30
+
+      - name: Dọn keychain
+        if: always() && steps.signing.outputs.enabled == 'true'
+        run: keychain use-login || true
 
   release:
     name: GitHub Release

@@ -53,9 +53,9 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
     });
   }
 
-  double? get _quantity => double.tryParse(_quantityController.text.replaceAll(RegExp(r'[^0-9.]'), ''));
-  double? get _pricePerUnit => double.tryParse(_priceController.text.replaceAll(RegExp(r'[^0-9.]'), ''));
-  double? get _fee => double.tryParse(_feeController.text.replaceAll(RegExp(r'[^0-9.]'), '')) ?? 0;
+  double? get _quantity => Formatters.parseQuantity(_quantityController.text);
+  double? get _pricePerUnit => Formatters.parseMoney(_priceController.text);
+  double? get _fee => Formatters.parseMoney(_feeController.text) ?? 0;
 
   double? get _quantityInLuong {
     final q = _quantity;
@@ -350,7 +350,7 @@ class _AddPurchaseScreenState extends State<AddPurchaseScreen> {
     final buyPrice = store.getBuyPrice(_selectedGoldTypeId!);
     if (buyPrice != null) {
       final pricePerUnit = GoldUnits.priceFromLuong(buyPrice, _selectedUnit!);
-      return pricePerUnit.round().toString();
+      return Formatters.formatVnd(pricePerUnit, withSymbol: false);
     }
     return '116.000.000';
   }

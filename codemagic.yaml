@@ -54,7 +54,7 @@ workflows:
 
       - name: Flutter test
         script: |
-          flutter test || echo "Tests hiện chỉ có placeholder, tiếp tục."
+          flutter test
 
       - name: Build web release
         script: |
@@ -126,9 +126,12 @@ workflows:
     instance_type: mac_mini_m2
 
     environment:
-      flutter: 3.35.4
+      # pubspec.lock yêu cầu Flutter ≥ 3.44 (Dart ≥ 3.12).
+      flutter: 3.47.5
       xcode: latest
       cocoapods: default
+      vars:
+        LO_WORKER_URL: "https://lo-gold-proxy.webjscloud.workers.dev"
 
     triggering:
       events:
@@ -142,13 +145,11 @@ workflows:
         script: |
           flutter pub get
 
-      - name: Pod install
-        script: |
-          cd ios && pod install
-
+      # Không chạy `pod install` riêng: `flutter build` tự xử lý CocoaPods /
+      # Swift Package Manager.
       - name: Build iOS (không codesign)
         script: |
-          flutter build ios --release --no-codesign
+          flutter build ios --release --no-codesign --dart-define=LO_WORKER_URL=$LO_WORKER_URL
 
       - name: Đóng gói IPA unsigned
         script: |
@@ -174,43 +175,72 @@ workflows:
           - '*.ipa'
 
   # ─────────────────────────────────────────────────────────────
-  # (Tùy chọn) iOS signed cho App Store / TestFlight
-  # Bật khi có Apple Developer account + tạo signing identity ở
-  # Codemagic → Teams → Code signing identities.
+  # iOS ký app + đẩy lên TestFlight. Chạy tay: Codemagic → Start new
+  # build → chọn workflow này (không tự trigger để tiết kiệm phút macOS).
+  #
+  # Cần env group `ios_release` (Team settings → Environment variables):
+  #   APP_STORE_CONNECT_ISSUER_ID       Issuer ID của API key
+  #   APP_STORE_CONNECT_KEY_IDENTIFIER  Key ID
+  #   APP_STORE_CONNECT_PRIVATE_KEY     Nội dung file AuthKey_XXXX.p8
+  #   CERTIFICATE_PRIVATE_KEY           RSA private key (PEM) dùng tạo/khớp
+  #                                     chứng chỉ Apple Distribution
+  # Chi tiết: docs/BUILD.md mục 7.
   # ─────────────────────────────────────────────────────────────
-  # ios-signed-workflow:
-  #   name: iOS signed (App Store)
-  #   max_build_duration: 90
-  #   instance_type: mac_mini_m2
-  #   integrations:
-  #     app_store_connect: <API key name>
-  #   environment:
-  #     ios_signing:
-  #       distribution_type: app_store
-  #       bundle_identifier: com.example.lo
-  #     flutter: 3.35.4
-  #     xcode: latest
-  #     cocoapods: default
-  #   triggering:
-  #     events: [tag]
-  #     tag_patterns:
-  #       - pattern: 'v*'
-  #   scripts:
-  #     - name: Flutter packages
-  #       script: flutter pub get
-  #     - name: Fetch signing files
-  #       script: xcode-project use-profiles
-  #     - name: Increment build number
-  #       script: |
-  #         cd ios
-  #         agvtool new-version -all $(($BUILD_NUMBER + 1))
-  #     - name: Flutter build ipa
-  #       script: |
-  #         flutter build ipa --release \
-  #           --export-options-plist=/Users/builder/export_options.plist
-  #   artifacts:
-  #     - build/ios/ipa/*.ipa
-  #   publishing:
-  #     app_store_connect:
-  #       auth: integration
-  #       submit_to_testflight: true
+  ios-testflight-workflow:
+    name: iOS TestFlight
+    max_build_duration: 60
+    instance_type: mac_mini_m2
+
+    environment:
+      flutter: 3.47.5
+      xcode: latest
+      cocoapods: default
+      groups:
+        - ios_release
+      vars:
+        BUNDLE_ID: "vn.lo.app"
+        LO_WORKER_URL: "https://lo-gold-proxy.webjscloud.workers.dev"
+
+    scripts:
+      - name: Flutter dependencies
+        script: |
+          flutter pub get
+
+      # Tạo keychain tạm, rồi lấy (hoặc tạo mới nếu chưa có) chứng chỉ
+      # Apple Distribution + provisioning profile App Store cho BUNDLE_ID
+      # qua App Store Connect API, cuối cùng gắn profile vào project Xcode.
+      - name: Setup iOS signing
+        script: |
+          keychain initialize
+          app-store-connect fetch-signing-files "$BUNDLE_ID" \
+            --type IOS_APP_STORE \
+            --create
+          keychain add-certificates
+          xcode-project use-profiles
+
+      # Build number = số build của Codemagic, luôn tăng nên TestFlight
+      # không từ chối. Version name lấy từ pubspec.yaml.
+      - name: Build IPA
+        script: |
+          flutter build ipa --release \
+            --build-number=$BUILD_NUMBER \
+            --export-options-plist=/Users/builder/export_options.plist \
+            --dart-define=LO_WORKER_URL=$LO_WORKER_URL
+
+    artifacts:
+      - build/ios/ipa/*.ipa
+      - /tmp/xcodebuild_logs/*.log
+      - $HOME/Library/Developer/Xcode/DerivedData/**/Build/**/*.dSYM
+
+    publishing:
+      email:
+        recipients:
+          - ttc99x@gmail.com
+        notify:
+          success: true
+          failure: true
+      app_store_connect:
+        api_key: $APP_STORE_CONNECT_PRIVATE_KEY
+        key_id: $APP_STORE_CONNECT_KEY_IDENTIFIER
+        issuer_id: $APP_STORE_CONNECT_ISSUER_ID
+        submit_to_testflight: true

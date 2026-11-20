@@ -428,7 +428,7 @@ class _AddAlertDialogState extends State<_AddAlertDialog> {
                 keyboardType: TextInputType.number,
                 decoration: _inputDecoration('VD: 120000000'),
                 style: const TextStyle(color: AppColors.textPrimary),
-                onChanged: (val) => _targetPrice = double.tryParse(val) ?? 0,
+                onChanged: (val) => _targetPrice = Formatters.parseMoney(val) ?? 0,
               ),
             ],
             if (_selectedType == PriceAlertType.lossThreshold ||
@@ -447,7 +447,7 @@ class _AddAlertDialogState extends State<_AddAlertDialog> {
                       : 'VD: 10000000 (lãi 10 triệu)',
                 ),
                 style: const TextStyle(color: AppColors.textPrimary),
-                onChanged: (val) => _targetPL = double.tryParse(val) ?? 0,
+                onChanged: (val) => _targetPL = Formatters.parseMoney(val) ?? 0,
               ),
             ],
             if (_selectedType == PriceAlertType.breakeven) ...[

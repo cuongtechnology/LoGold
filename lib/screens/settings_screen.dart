@@ -66,6 +66,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 value: store.pinEnabled,
                 onChanged: (val) => _handlePinToggle(val, store),
               ),
+              if (store.pinEnabled && store.biometricAvailable)
+                _buildToggleTile(
+                  icon: Icons.fingerprint,
+                  title: 'Mở khóa bằng vân tay / Face ID',
+                  subtitle: 'Dùng sinh trắc học thay cho nhập PIN',
+                  value: store.biometricEnabled,
+                  onChanged: (val) => _handleBiometricToggle(val, store),
+                ),
               const SizedBox(height: 16),
 
               _buildSectionTitle('Thông báo'),
@@ -324,6 +332,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
     } else {
       store.setPinEnabled(false);
     }
+  }
+
+  Future<void> _handleBiometricToggle(bool enable, AppStore store) async {
+    final ok = await store.setBiometricEnabled(enable);
+    if (!mounted || ok || !enable) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Chưa xác thực được vân tay / Face ID'),
+        backgroundColor: AppColors.loss,
+      ),
+    );
   }
 
   void _showPinEntryDialog(BuildContext context, AppStore store) {
