@@ -9,6 +9,15 @@ on:
   # Chạy tay (tab Actions → Build → Run workflow): build đủ cả iOS, và nếu
   # đã khai báo secret App Store Connect thì upload luôn lên TestFlight.
   workflow_dispatch:
+    inputs:
+      android_release:
+        description: 'Build APK/AAB release đã ký (để tải lên Play Console), không cần gắn tag'
+        type: boolean
+        default: false
+      ios:
+        description: 'Build iOS (có secret thì ký và đẩy lên TestFlight)'
+        type: boolean
+        default: true
 
 env:
   # pubspec.lock yêu cầu Flutter >= 3.44 (Dart >= 3.12).
@@ -140,7 +149,7 @@ jobs:
       # Nếu secret rỗng → key.properties không tồn tại → build.gradle.kts
       # fallback debug key → APK release vẫn có nhưng unsigned.
       - name: Decode release keystore
-        if: startsWith(github.ref, 'refs/tags/v') && env.ANDROID_KEYSTORE_B64 != ''
+        if: (startsWith(github.ref, 'refs/tags/v') || inputs.android_release) && env.ANDROID_KEYSTORE_B64 != ''
         run: |
           echo "$ANDROID_KEYSTORE_B64" | base64 -d > android/app/lo-release.jks
           cat > android/key.properties <<EOF
@@ -150,14 +159,14 @@ jobs:
           keyPassword=${{ secrets.ANDROID_KEY_PASSWORD }}
           EOF
 
-      - name: Build release APK (tag only)
-        if: startsWith(github.ref, 'refs/tags/v')
+      - name: Build release APK (tag hoặc android_release)
+        if: (startsWith(github.ref, 'refs/tags/v') || inputs.android_release)
         run: flutter build apk --release $ANDROID_BUILD_FLAGS --dart-define=LO_WORKER_URL=${{ env.LO_WORKER_URL }}
 
       # Google Play Console bắt buộc .aab (Android App Bundle) để nộp app
       # mới — .apk ở trên chỉ dùng để cài thử/phân phối ngoài Play Store.
-      - name: Build release AAB cho Play Store (tag only)
-        if: startsWith(github.ref, 'refs/tags/v')
+      - name: Build release AAB cho Play Store (tag hoặc android_release)
+        if: (startsWith(github.ref, 'refs/tags/v') || inputs.android_release)
         run: flutter build appbundle --release $ANDROID_BUILD_FLAGS --dart-define=LO_WORKER_URL=${{ env.LO_WORKER_URL }}
 
       - uses: actions/upload-artifact@v4
@@ -167,16 +176,16 @@ jobs:
           retention-days: 14
 
       - uses: actions/upload-artifact@v4
-        if: startsWith(github.ref, 'refs/tags/v')
+        if: (startsWith(github.ref, 'refs/tags/v') || inputs.android_release)
         with:
-          name: apk-release-${{ github.ref_name }}
+          name: apk-release-${{ github.run_number }}
           path: build/app/outputs/flutter-apk/app-release.apk
           retention-days: 30
 
       - uses: actions/upload-artifact@v4
-        if: startsWith(github.ref, 'refs/tags/v')
+        if: (startsWith(github.ref, 'refs/tags/v') || inputs.android_release)
         with:
-          name: aab-release-${{ github.ref_name }}
+          name: aab-release-${{ github.run_number }}
           path: build/app/outputs/bundle/release/app-release.aab
           retention-days: 30
 
@@ -191,7 +200,7 @@ jobs:
   #   CERTIFICATE_PRIVATE_KEY           RSA private key (PEM) của chứng chỉ
   build-ios:
     name: Build iOS IPA
-    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+    if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.ios)
     runs-on: macos-latest
     needs: [analyze]
     env:
