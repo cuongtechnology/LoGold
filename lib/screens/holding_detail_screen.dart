@@ -10,6 +10,7 @@ import '../services/profit_loss_calculator.dart';
 import '../services/meme_engine.dart';
 import '../models/user_holding.dart';
 import 'add_purchase_screen.dart';
+import 'sell_holding_sheet.dart';
 
 /// Holding Detail Screen - Shows full details and P/L for a single gold holding.
 class HoldingDetailScreen extends StatefulWidget {
@@ -42,6 +43,7 @@ class _HoldingDetailScreenState extends State<HoldingDetailScreen> {
     final goldType = store.getGoldType(holding.goldTypeId);
     final displayName = goldType?.displayName ?? holding.goldTypeId;
     final isSold = holding.status == 'sold';
+    final realized = ProfitLossCalculator.calculateRealized(holding);
 
     return Scaffold(
       appBar: AppBar(
@@ -52,7 +54,15 @@ class _HoldingDetailScreenState extends State<HoldingDetailScreen> {
             itemBuilder: (context) => [
               const PopupMenuItem(value: 'edit', child: Text('Chỉnh sửa')),
               const PopupMenuItem(value: 'duplicate', child: Text('Nhân bản')),
-              const PopupMenuItem(value: 'sold', child: Text('Đánh dấu đã bán')),
+              if (!isSold)
+                const PopupMenuItem(value: 'sold', child: Text('Đánh dấu đã bán')),
+              if (isSold)
+                PopupMenuItem(
+                  value: 'sold',
+                  child: Text(realized == null ? 'Ghi giá bán' : 'Sửa thông tin bán'),
+                ),
+              if (isSold)
+                const PopupMenuItem(value: 'unsell', child: Text('Hoàn tác đã bán')),
               const PopupMenuItem(
                 value: 'delete',
                 child: Text('Xóa', style: TextStyle(color: AppColors.loss)),
@@ -68,7 +78,25 @@ class _HoldingDetailScreenState extends State<HoldingDetailScreen> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               // P/L Hero section
-              _buildPLHero(result, isSold, privacyMode),
+              if (isSold)
+                _buildSoldHero(holding, realized, privacyMode)
+              else
+                _buildPLHero(result, privacyMode),
+              if (realized != null) ...[
+                const SizedBox(height: 12),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: Text(
+                    ProfitLossCalculator.getRealizedComment(
+                        realized.profitLossPercent),
+                    style: const TextStyle(
+                      color: AppColors.textSecondary,
+                      fontSize: 13,
+                      fontStyle: FontStyle.italic,
+                    ),
+                  ),
+                ),
+              ],
               if (result != null && !isSold) ...[
                 const SizedBox(height: 12),
                 Padding(
@@ -81,6 +109,11 @@ class _HoldingDetailScreenState extends State<HoldingDetailScreen> {
               if (result != null && !isSold) ...[
                 SectionHeader(title: 'Chi tiết lãi/lỗ'),
                 _buildPLBreakdown(result, privacyMode),
+                const SizedBox(height: 16),
+              ],
+              if (realized != null) ...[
+                SectionHeader(title: 'Thông tin bán ra'),
+                _buildSaleInfo(holding, realized, privacyMode),
                 const SizedBox(height: 16),
               ],
               // Purchase info
@@ -127,8 +160,14 @@ class _HoldingDetailScreenState extends State<HoldingDetailScreen> {
     );
   }
 
-  Widget _buildPLHero(ProfitLossResult? result, bool isSold, bool privacyMode) {
-    if (result == null || isSold) {
+  /// Hero cho mục đã bán: lãi/lỗ thực hiện, hoặc trạng thái trung tính nếu
+  /// chưa ghi giá bán (mục cũ).
+  Widget _buildSoldHero(
+    UserHolding holding,
+    RealizedResult? realized,
+    bool privacyMode,
+  ) {
+    if (realized == null) {
       return AppCard(
         child: Column(
           children: [
@@ -136,10 +175,151 @@ class _HoldingDetailScreenState extends State<HoldingDetailScreen> {
             const SizedBox(height: 12),
             const Text(
               'Mục này đã được bán',
-              style: TextStyle(
-                color: AppColors.textSecondary,
-                fontSize: 16,
+              style: TextStyle(color: AppColors.textSecondary, fontSize: 16),
+            ),
+            const SizedBox(height: 4),
+            const Text(
+              'Chưa ghi giá bán nên chưa tính được lãi/lỗ',
+              style: TextStyle(color: AppColors.textHint, fontSize: 13),
+            ),
+            const SizedBox(height: 12),
+            OutlinedButton.icon(
+              onPressed: () => showSellHoldingSheet(context, holding),
+              icon: const Icon(Icons.edit_note, size: 18),
+              label: const Text('Ghi giá bán'),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: AppColors.gold,
+                side: const BorderSide(color: AppColors.gold),
               ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    final color = realized.isProfit ? AppColors.profit : AppColors.loss;
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.symmetric(horizontal: 16),
+      padding: const EdgeInsets.all(24),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: realized.isProfit
+              ? [AppColors.profitBg, AppColors.bgCard]
+              : [AppColors.lossBg, AppColors.bgCard],
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+        ),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: color.withValues(alpha: 0.3)),
+      ),
+      child: Column(
+        children: [
+          Text(
+            realized.isProfit ? 'Đã chốt lãi 🎉' : 'Đã chốt lỗ 😢',
+            style: TextStyle(
+              color: color,
+              fontSize: 14,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(height: 16),
+          Text(
+            privacyMode ? '••••••' : Formatters.formatVnd(realized.profitLoss),
+            style: TextStyle(
+              color: privacyMode ? AppColors.textHint : color,
+              fontSize: 40,
+              fontWeight: FontWeight.bold,
+              fontFeatures: const [FontFeature.tabularFigures()],
+            ),
+          ),
+          const SizedBox(height: 8),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+            decoration: BoxDecoration(
+              color: color.withValues(alpha: 0.2),
+              borderRadius: BorderRadius.circular(16),
+            ),
+            child: Text(
+              privacyMode
+                  ? '••••'
+                  : Formatters.formatPercent(realized.profitLossPercent),
+              style: TextStyle(
+                color: privacyMode ? AppColors.textHint : color,
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSaleInfo(
+    UserHolding holding,
+    RealizedResult realized,
+    bool privacyMode,
+  ) {
+    final sellPerLuong = holding.sellPricePerLuong ?? 0;
+    final color = realized.isProfit ? AppColors.profit : AppColors.loss;
+    final sellDate = holding.sellDate;
+    return AppCard(
+      child: Column(
+        children: [
+          _detailRow(
+            'Giá bán / ${GoldUnits.shortLabel(holding.unit)}',
+            privacyMode
+                ? '••••'
+                : Formatters.formatVnd(
+                    GoldUnits.priceFromLuong(sellPerLuong, holding.unit)),
+            AppColors.textPrimary,
+          ),
+          const Divider(color: AppColors.divider, height: 24),
+          _detailRow(
+            'Giá bán / lượng',
+            privacyMode ? '••••' : Formatters.formatVnd(sellPerLuong),
+            AppColors.textSecondary,
+          ),
+          const Divider(color: AppColors.divider, height: 24),
+          _detailRow(
+            'Ngày bán',
+            sellDate == null ? 'Không rõ' : Formatters.formatDate(sellDate),
+            AppColors.textSecondary,
+          ),
+          const Divider(color: AppColors.divider, height: 24),
+          _detailRow(
+            'Phí bán',
+            privacyMode ? '•••' : Formatters.formatVnd(holding.sellFee ?? 0),
+            AppColors.textSecondary,
+          ),
+          const Divider(color: AppColors.divider, height: 24),
+          _detailRow(
+            'Tiền thu về',
+            privacyMode ? '••••••' : Formatters.formatVnd(realized.proceeds),
+            AppColors.textPrimary,
+          ),
+          const Divider(color: AppColors.divider, height: 24),
+          _detailRow(
+            'Lãi / Lỗ đã chốt',
+            privacyMode ? '••••••' : Formatters.formatVnd(realized.profitLoss),
+            privacyMode ? AppColors.textHint : color,
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPLHero(ProfitLossResult? result, bool privacyMode) {
+    if (result == null) {
+      return const AppCard(
+        child: Column(
+          children: [
+            Icon(Icons.hourglass_empty, size: 48, color: AppColors.neutral),
+            SizedBox(height: 12),
+            Text(
+              'Chưa có giá hiện tại để tính lãi/lỗ',
+              style: TextStyle(color: AppColors.textSecondary, fontSize: 16),
             ),
           ],
         ),
@@ -421,7 +601,10 @@ class _HoldingDetailScreenState extends State<HoldingDetailScreen> {
         );
         break;
       case 'sold':
-        _confirmMarkAsSold(context, holding.id, store);
+        _markAsSold(context, holding);
+        break;
+      case 'unsell':
+        _confirmUndoSale(context, holding.id, store);
         break;
       case 'delete':
         _confirmDelete(context, holding.id, store);
@@ -429,14 +612,27 @@ class _HoldingDetailScreenState extends State<HoldingDetailScreen> {
     }
   }
 
-  void _confirmMarkAsSold(BuildContext context, String id, AppStore store) {
+  Future<void> _markAsSold(BuildContext context, UserHolding holding) async {
+    final wasSold = holding.status == 'sold';
+    final saved = await showSellHoldingSheet(context, holding);
+    if (!saved || !context.mounted) return;
+    if (!wasSold) Navigator.pop(context);
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(wasSold ? 'Đã cập nhật thông tin bán' : 'Đã đánh dấu là đã bán'),
+        backgroundColor: AppColors.bgCard,
+      ),
+    );
+  }
+
+  void _confirmUndoSale(BuildContext context, String id, AppStore store) {
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
         backgroundColor: AppColors.bgCard,
-        title: const Text('Đánh dấu đã bán?'),
+        title: const Text('Hoàn tác đã bán?'),
         content: const Text(
-          'Mục này sẽ được chuyển sang trạng thái đã bán. Bạn vẫn có thể xem lại thông tin.',
+          'Mục này sẽ quay lại danh sách đang giữ và thông tin bán (giá, ngày, phí) sẽ bị xóa.',
         ),
         actions: [
           TextButton(
@@ -445,17 +641,16 @@ class _HoldingDetailScreenState extends State<HoldingDetailScreen> {
           ),
           TextButton(
             onPressed: () {
-              store.markAsSold(id);
+              store.undoSale(id);
               Navigator.pop(ctx);
-              Navigator.pop(context);
               ScaffoldMessenger.of(context).showSnackBar(
                 const SnackBar(
-                  content: Text('Đã đánh dấu là đã bán'),
+                  content: Text('Đã hoàn tác, mục này lại đang giữ'),
                   backgroundColor: AppColors.bgCard,
                 ),
               );
             },
-            child: const Text('Xác nhận', style: TextStyle(color: AppColors.gold)),
+            child: const Text('Hoàn tác', style: TextStyle(color: AppColors.gold)),
           ),
         ],
       ),

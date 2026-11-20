@@ -11,6 +11,11 @@ import '../models/meme_template.dart';
 ///   % lãi/lỗ = lãi/lỗ / tổng vốn × 100
 ///   Giá hòa vốn = tổng vốn / số lượng vàng (lượng)
 ///   Cần tăng thêm = giá hòa vốn - giá mua vào hiện tại
+///
+/// Lãi/lỗ thực hiện (đã bán):
+///   Tiền thu về = giá bán/lượng × số lượng (lượng) - phí bán
+///   Lãi/lỗ thực hiện = tiền thu về - tổng vốn (đã gồm phí mua)
+///   % = lãi/lỗ thực hiện / tổng vốn × 100
 class ProfitLossCalculator {
   /// Calculate P/L for a single holding given the current buy price per luong.
   /// [currentBuyPricePerLuong] is the price the shop would pay you (buy-in price).
@@ -54,6 +59,70 @@ class ProfitLossCalculator {
       priceIncreaseNeeded: priceIncreaseNeeded,
       isProfit: profitLoss >= 0,
     );
+  }
+
+  /// Lãi/lỗ thực hiện của 1 holding đã bán. Trả null nếu chưa ghi giá bán.
+  /// Phí mua nằm sẵn trong `totalCost`, phí bán trừ vào tiền thu về.
+  static RealizedResult? calculateRealized(UserHolding holding) {
+    final sellPrice = holding.sellPricePerLuong;
+    if (holding.status != 'sold' || sellPrice == null) return null;
+
+    final sellFee = holding.sellFee ?? 0;
+    final proceeds = sellPrice * holding.quantityInLuong - sellFee;
+    final totalCost = holding.totalCost;
+    final profitLoss = proceeds - totalCost;
+    final percent = totalCost > 0 ? (profitLoss / totalCost) * 100 : 0.0;
+
+    return RealizedResult(
+      holding: holding,
+      proceeds: proceeds,
+      totalCost: totalCost,
+      profitLoss: profitLoss,
+      profitLossPercent: percent,
+      isProfit: profitLoss >= 0,
+    );
+  }
+
+  /// Tổng hợp lãi/lỗ thực hiện qua nhiều holding. Holding chưa ghi giá bán
+  /// (hoặc chưa bán) bị bỏ qua khỏi tổng và đếm vào `missingSellPriceCount`
+  /// nếu đã 'sold'.
+  static RealizedSummary calculateRealizedSummary(List<UserHolding> holdings) {
+    double totalCost = 0;
+    double totalProceeds = 0;
+    int missing = 0;
+    final results = <RealizedResult>[];
+
+    for (final h in holdings) {
+      if (h.status != 'sold') continue;
+      final r = calculateRealized(h);
+      if (r == null) {
+        missing++;
+        continue;
+      }
+      results.add(r);
+      totalCost += r.totalCost;
+      totalProceeds += r.proceeds;
+    }
+
+    final profitLoss = totalProceeds - totalCost;
+    return RealizedSummary(
+      results: results,
+      totalCost: totalCost,
+      totalProceeds: totalProceeds,
+      profitLoss: profitLoss,
+      profitLossPercent: totalCost > 0 ? (profitLoss / totalCost) * 100 : 0.0,
+      missingSellPriceCount: missing,
+    );
+  }
+
+  /// Câu trêu nhẹ cho khoản lãi/lỗ đã chốt (khác `MemeEngine`: đã bán rồi thì
+  /// không còn "chờ hồi" nên giọng điệu cũng khác).
+  static String getRealizedComment(double profitLossPercent) {
+    if (profitLossPercent >= 10) return 'Chốt lời đẹp, nhớ khao anh em nhé 🎉';
+    if (profitLossPercent >= 0) return 'Có lãi là tốt rồi, không ai chê 👍';
+    if (profitLossPercent >= -3) return 'Lỗ nhẹ thôi, coi như đóng học phí 📚';
+    if (profitLossPercent >= -10) return 'Cắt lỗ cũng là một nghệ thuật, đau nhưng tỉnh 😮‍💨';
+    return 'Đã cắt thì thôi, tiền mất nhưng bài học còn 🫡';
   }
 
   /// Calculate aggregate P/L for an entire portfolio.
@@ -187,4 +256,47 @@ class PortfolioSummary {
       ProfitLossCalculator.getMemeCondition(totalProfitLossPercent);
 
   int get holdingCount => holdings.length;
+}
+
+/// Kết quả lãi/lỗ thực hiện của 1 holding đã bán
+class RealizedResult {
+  final UserHolding holding;
+  final double proceeds; // tiền thu về sau khi trừ phí bán
+  final double totalCost; // tổng vốn (đã gồm phí mua)
+  final double profitLoss;
+  final double profitLossPercent;
+  final bool isProfit;
+
+  RealizedResult({
+    required this.holding,
+    required this.proceeds,
+    required this.totalCost,
+    required this.profitLoss,
+    required this.profitLossPercent,
+    required this.isProfit,
+  });
+}
+
+/// Tổng lãi/lỗ thực hiện qua các holding đã bán (có ghi giá bán)
+class RealizedSummary {
+  final List<RealizedResult> results;
+  final double totalCost;
+  final double totalProceeds;
+  final double profitLoss;
+  final double profitLossPercent;
+
+  /// Số holding đã 'sold' nhưng chưa ghi giá bán (không nằm trong tổng).
+  final int missingSellPriceCount;
+
+  RealizedSummary({
+    required this.results,
+    required this.totalCost,
+    required this.totalProceeds,
+    required this.profitLoss,
+    required this.profitLossPercent,
+    required this.missingSellPriceCount,
+  });
+
+  int get count => results.length;
+  bool get isProfit => profitLoss >= 0;
 }

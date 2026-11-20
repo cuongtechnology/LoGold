@@ -1,5 +1,7 @@
+import 'dart:convert';
 import 'dart:io';
 
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
@@ -8,6 +10,7 @@ import 'package:share_plus/share_plus.dart';
 
 import '../constants/app_constants.dart';
 import '../stores/app_store.dart';
+import '../services/backup_codec.dart';
 import '../services/export_service.dart';
 import '../services/review_service.dart';
 import '../components/ui_components.dart';
@@ -95,6 +98,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 title: 'Xuất JSON',
                 subtitle: 'Xuất dữ liệu ra file JSON (backup)',
                 onTap: () => _exportData(context, 'json'),
+              ),
+              _buildActionTile(
+                icon: Icons.restore,
+                title: 'Khôi phục từ file sao lưu',
+                subtitle: 'Nhập lại danh mục từ file JSON đã xuất',
+                onTap: () => _importBackup(context, store),
               ),
               const SizedBox(height: 16),
 
@@ -430,7 +439,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final String fileName;
 
     if (format == 'csv') {
-      data = export.exportToCSV();
+      // BOM UTF-8 để Excel (Windows) hiện đúng tiếng Việt.
+      data = export.exportToCSV(withBom: true);
       fileName = 'lo_holdings.csv';
     } else {
       data = export.exportToJSON();
@@ -458,6 +468,116 @@ class _SettingsScreenState extends State<SettingsScreen> {
         ),
       );
     }
+  }
+
+  /// Chọn file .json → validate → hỏi gộp/thay thế → nhập. Mọi lỗi được báo
+  /// bằng SnackBar tiếng Việt, không để lộ exception thô.
+  Future<void> _importBackup(BuildContext context, AppStore store) async {
+    final BackupData data;
+    try {
+      final picked = await FilePicker.pickFile(
+        type: FileType.custom,
+        allowedExtensions: const ['json'],
+      );
+      if (picked == null) return; // user huỷ
+
+      // readAsBytes hoạt động cả trên web (không có path) lẫn Android/iOS.
+      final bytes = await picked.readAsBytes();
+      if (bytes.length > BackupCodec.maxInputLength) {
+        throw const BackupFormatException(
+            'File quá lớn, không phải file sao lưu hợp lệ.');
+      }
+      final String raw;
+      try {
+        raw = utf8.decode(bytes);
+      } on FormatException {
+        throw const BackupFormatException(
+          'File không đọc được. Hãy chọn file .json được xuất từ ứng dụng.',
+        );
+      }
+      data = store.parseBackup(raw);
+    } on BackupFormatException catch (e) {
+      if (context.mounted) _showImportSnack(context, e.message, isError: true);
+      return;
+    } catch (_) {
+      if (context.mounted) {
+        _showImportSnack(
+          context,
+          'Không mở được file. Vui lòng thử lại hoặc chọn file khác.',
+          isError: true,
+        );
+      }
+      return;
+    }
+
+    if (!context.mounted) return;
+    final mode = await _askImportMode(context, store.previewImport(data));
+    if (mode == null) return;
+
+    try {
+      final plan = await store.importBackup(data, mode);
+      if (!context.mounted) return;
+      _showImportSnack(
+        context,
+        mode == ImportMode.replace
+            ? 'Đã khôi phục ${plan.addedCount} mục từ file sao lưu'
+            : 'Đã thêm ${plan.addedCount} mục, bỏ qua ${plan.skippedCount} mục đã có',
+      );
+    } catch (_) {
+      if (context.mounted) {
+        _showImportSnack(
+          context,
+          'Khôi phục thất bại, dữ liệu hiện tại vẫn được giữ nguyên.',
+          isError: true,
+        );
+      }
+    }
+  }
+
+  void _showImportSnack(BuildContext context, String message,
+      {bool isError = false}) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: isError ? AppColors.loss : AppColors.bgCard,
+      ),
+    );
+  }
+
+  Future<ImportMode?> _askImportMode(
+      BuildContext context, ImportPreview preview) {
+    return showDialog<ImportMode>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: AppColors.bgCard,
+        title: const Text(
+          'Khôi phục dữ liệu',
+          style: TextStyle(color: AppColors.gold),
+        ),
+        content: Text(
+          'File sao lưu có ${preview.totalInFile} mục '
+          '(${preview.newCount} mục chưa có trên máy). '
+          'Hiện trên máy có ${preview.currentCount} mục.\n\n'
+          '• Gộp: thêm các mục chưa có, giữ nguyên dữ liệu hiện tại.\n'
+          '• Thay thế: xóa toàn bộ danh mục hiện tại và dùng nội dung file.',
+          style: const TextStyle(color: AppColors.textSecondary, fontSize: 14),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Hủy'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, ImportMode.replace),
+            child: const Text('Thay thế', style: TextStyle(color: AppColors.loss)),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, ImportMode.merge),
+            child: const Text('Gộp', style: TextStyle(color: AppColors.gold)),
+          ),
+        ],
+      ),
+    );
   }
 
   void _showPushInfoDialog(BuildContext context, AppStore store) {
@@ -515,12 +635,20 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ),
           content: const SingleChildScrollView(
             child: Text(
-              'Ứng dụng "Lỗ" - Lỗ nhiều chưa? - là công cụ theo dõi danh mục vàng cá nhân.\n\n'
-              '• Thông tin về giá vàng chỉ mang tính tham khảo\n'
-              '• Không phải là khuyến nghị mua/bán vàng\n'
-              '• Người dùng tự chịu trách nhiệm về quyết định đầu tư\n'
-              '• Giá vàng thực tế có thể chênh lệch tùy tiệm vàng\n'
-              '• Dữ liệu có thể không cập nhật theo thời gian thực\n\n'
+              'Ứng dụng "Lỗ" - Lỗ nhiều chưa? - là công cụ theo dõi danh mục vàng cá nhân.
+
+'
+              '• Thông tin về giá vàng chỉ mang tính tham khảo
+'
+              '• Không phải là khuyến nghị mua/bán vàng
+'
+              '• Người dùng tự chịu trách nhiệm về quyết định đầu tư
+'
+              '• Giá vàng thực tế có thể chênh lệch tùy tiệm vàng
+'
+              '• Dữ liệu có thể không cập nhật theo thời gian thực
+
+'
               'Hãy luôn tham khảo giá từ tiệm vàng hoặc nguồn uy tín '
               'trước khi thực hiện giao dịch.',
               style: TextStyle(color: AppColors.textSecondary, height: 1.5),
@@ -557,19 +685,27 @@ class _SettingsScreenState extends State<SettingsScreen> {
               mainAxisSize: MainAxisSize.min,
               children: [
                 const Text(
-                  'Ứng dụng "Lỗ nhiều chưa?" tôn trọng quyền riêng tư của bạn:\n\n'
+                  'Ứng dụng "Lỗ nhiều chưa?" tôn trọng quyền riêng tư của bạn:
+
+'
                   '• Danh mục vàng, giá mua, ghi chú, mã PIN (nếu bật) chỉ lưu '
                   'cục bộ trên thiết bị — không tài khoản, không đồng bộ lên '
-                  'server nào của chúng tôi\n'
+                  'server nào của chúng tôi
+'
                   '• App hiển thị quảng cáo qua Google AdMob — AdMob có thể '
                   'thu thập Advertising ID và dữ liệu thiết bị để cá nhân hoá '
-                  'quảng cáo\n'
+                  'quảng cáo
+'
                   '• App gửi thông báo đẩy qua Firebase Cloud Messaging — cần '
                   'gửi 1 mã định danh thiết bị (không phải thông tin cá nhân) '
-                  'để biết gửi thông báo tới đúng máy\n'
+                  'để biết gửi thông báo tới đúng máy
+'
                   '• Giá vàng lấy từ API công khai, không gắn với thông tin cá '
-                  'nhân nào\n'
-                  '• Gỡ app khỏi máy sẽ xoá toàn bộ dữ liệu cục bộ ngay lập tức\n\n'
+                  'nhân nào
+'
+                  '• Gỡ app khỏi máy sẽ xoá toàn bộ dữ liệu cục bộ ngay lập tức
+
+'
                   'Chi tiết đầy đủ tại:',
                   style: TextStyle(color: AppColors.textSecondary, height: 1.5),
                 ),

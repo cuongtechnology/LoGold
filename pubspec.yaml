@@ -45,6 +45,8 @@ dependencies:
   # Xuất file/chia sẻ (Cài đặt → Xuất CSV/JSON)
   path_provider: ^2.1.5
   share_plus: ^13.2.0
+  # Chọn file sao lưu để khôi phục (Android/iOS/web)
+  file_picker: ^13.4.0
 
   # Xin đánh giá app (In-App Review)
   in_app_review: ^2.0.12

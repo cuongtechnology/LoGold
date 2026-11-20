@@ -21,15 +21,18 @@ class PortfolioScreen extends StatefulWidget {
 }
 
 class _PortfolioScreenState extends State<PortfolioScreen> {
-  String _filter = 'active'; // 'active' or 'all'
+  String _filter = 'active'; // 'active', 'sold' or 'all'
 
   @override
   Widget build(BuildContext context) {
     final store = context.watch<AppStore>();
     final allHoldings = store.holdings;
-    final holdings = _filter == 'active'
-        ? store.activeHoldings
-        : allHoldings;
+    final holdings = switch (_filter) {
+      'active' => store.activeHoldings,
+      'sold' => store.soldHoldings,
+      _ => allHoldings,
+    };
+    final realized = store.realizedSummary;
     final privacyMode = store.privacyMode;
 
     return Scaffold(
@@ -55,6 +58,8 @@ class _PortfolioScreenState extends State<PortfolioScreen> {
                 children: [
                   _filterChip('Đang giữ', 'active'),
                   const SizedBox(width: 8),
+                  _filterChip('Đã bán', 'sold'),
+                  const SizedBox(width: 8),
                   _filterChip('Tất cả', 'all'),
                   const Spacer(),
                   Text(
@@ -67,6 +72,9 @@ class _PortfolioScreenState extends State<PortfolioScreen> {
                 ],
               ),
             ),
+            // Tổng kết đã chốt (chỉ hiện khi có mục đã bán)
+            if (realized.count > 0 || realized.missingSellPriceCount > 0)
+              _buildRealizedSummary(realized, privacyMode),
             // Holdings list
             Expanded(
               child: holdings.isEmpty
@@ -96,6 +104,80 @@ class _PortfolioScreenState extends State<PortfolioScreen> {
       floatingActionButton: FloatingActionButton(
         onPressed: () => _navigateToAdd(context),
         child: const Icon(Icons.add),
+      ),
+    );
+  }
+
+  /// Thẻ gọn "Đã chốt": tổng lãi/lỗ thực hiện của các mục đã bán có ghi giá
+  /// bán. Bấm để xem danh sách mục đã bán.
+  Widget _buildRealizedSummary(RealizedSummary realized, bool privacyMode) {
+    final hasData = realized.count > 0;
+    final color = realized.isProfit ? AppColors.profit : AppColors.loss;
+    return AppCard(
+      onTap: () => setState(() => _filter = 'sold'),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.price_check, color: AppColors.gold, size: 20),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  hasData ? 'Đã chốt (${realized.count} mục)' : 'Đã chốt',
+                  style: const TextStyle(
+                    color: AppColors.textSecondary,
+                    fontSize: 13,
+                  ),
+                ),
+              ),
+              if (hasData) ...[
+                Text(
+                  privacyMode
+                      ? '••••••'
+                      : Formatters.formatVnd(realized.profitLoss),
+                  style: TextStyle(
+                    color: privacyMode ? AppColors.textHint : color,
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  privacyMode
+                      ? '••••'
+                      : Formatters.formatPercent(realized.profitLossPercent),
+                  style: TextStyle(
+                    color: privacyMode ? AppColors.textHint : color,
+                    fontSize: 12,
+                  ),
+                ),
+              ],
+              const SizedBox(width: 4),
+              const Icon(Icons.chevron_right,
+                  color: AppColors.textHint, size: 18),
+            ],
+          ),
+          if (hasData && !privacyMode) ...[
+            const SizedBox(height: 6),
+            Text(
+              ProfitLossCalculator.getRealizedComment(
+                  realized.profitLossPercent),
+              style: const TextStyle(
+                color: AppColors.textSecondary,
+                fontSize: 12,
+                fontStyle: FontStyle.italic,
+              ),
+            ),
+          ],
+          if (realized.missingSellPriceCount > 0) ...[
+            const SizedBox(height: 6),
+            Text(
+              '${realized.missingSellPriceCount} mục đã bán chưa ghi giá bán, chưa tính vào tổng',
+              style: const TextStyle(color: AppColors.textHint, fontSize: 11),
+            ),
+          ],
+        ],
       ),
     );
   }
@@ -133,6 +215,7 @@ class _PortfolioScreenState extends State<PortfolioScreen> {
     bool privacyMode,
   ) {
     final isSold = holding.status == 'sold';
+    final realizedResult = ProfitLossCalculator.calculateRealized(holding);
     final isProfit = result?.isProfit ?? false;
     final color = isProfit ? AppColors.profit : AppColors.loss;
     final displayName = goldType?.displayName ?? holding.goldTypeId;
@@ -185,7 +268,9 @@ class _PortfolioScreenState extends State<PortfolioScreen> {
                               borderRadius: BorderRadius.circular(6),
                             ),
                             child: const Text(
-                              'Đã bán',
+                              holding.sellDate != null
+                                  ? 'Đã bán ${Formatters.formatDate(holding.sellDate!)}'
+                                  : 'Đã bán',
                               style: TextStyle(
                                 color: AppColors.neutral,
                                 fontSize: 10,
@@ -241,6 +326,45 @@ class _PortfolioScreenState extends State<PortfolioScreen> {
                           ? '••••••'
                           : Formatters.formatVnd(result.profitLoss),
                       privacyMode ? AppColors.textHint : color,
+                    ),
+                  ),
+                ],
+              ),
+            )
+          else if (isSold && realizedResult != null)
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: realizedResult.isProfit
+                    ? AppColors.profitBg
+                    : AppColors.lossBg,
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: _infoColumn(
+                      'Tổng vốn',
+                      privacyMode ? '••••••' : Formatters.formatVnd(realizedResult.totalCost),
+                      AppColors.textSecondary,
+                    ),
+                  ),
+                  Expanded(
+                    child: _infoColumn(
+                      'Thu về',
+                      privacyMode ? '••••••' : Formatters.formatVnd(realizedResult.proceeds),
+                      AppColors.textPrimary,
+                    ),
+                  ),
+                  Expanded(
+                    child: _infoColumn(
+                      'Đã chốt',
+                      privacyMode
+                          ? '••••••'
+                          : '${Formatters.formatVnd(realizedResult.profitLoss)} (${Formatters.formatPercent(realizedResult.profitLossPercent, decimals: 1)})',
+                      privacyMode
+                          ? AppColors.textHint
+                          : (realizedResult.isProfit ? AppColors.profit : AppColors.loss),
                     ),
                   ),
                 ],
@@ -369,6 +493,13 @@ class _PortfolioScreenState extends State<PortfolioScreen> {
   }
 
   Widget _buildEmptyState() {
+    if (_filter == 'sold') {
+      return const EmptyState(
+        emoji: '🧾',
+        title: 'Chưa bán mục nào',
+        subtitle: 'Mục đã chốt bán sẽ hiện ở đây cùng lãi/lỗ thực hiện',
+      );
+    }
     return EmptyState(
       emoji: '📭',
       title: 'Chưa có vàng nào',
