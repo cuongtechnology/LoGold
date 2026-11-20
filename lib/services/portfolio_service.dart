@@ -1,6 +1,7 @@
 import 'package:uuid/uuid.dart';
 import '../models/user_holding.dart';
 import '../models/gold_type.dart';
+import '../services/backup_codec.dart';
 import '../services/price_service.dart';
 import '../services/profit_loss_calculator.dart';
 import '../services/storage_service.dart';
@@ -140,13 +141,64 @@ class PortfolioService {
     await _persistHoldings();
   }
 
-  /// Mark a holding as sold
-  Future<void> markAsSold(String id) async {
+  /// Mark a holding as sold, ghi lại giá bán thực tế (per lượng), ngày bán và
+  /// phí bán. Gọi lại với holding đã 'sold' để bổ sung/sửa thông tin bán.
+  Future<void> markAsSold(
+    String id, {
+    required double sellPricePerLuong,
+    required DateTime sellDate,
+    double sellFee = 0,
+  }) async {
     final index = _holdings.indexWhere((h) => h.id == id);
     if (index >= 0) {
-      _holdings[index] =
-          _holdings[index].copyWith(status: 'sold', updatedAt: DateTime.now());
+      _holdings[index] = _holdings[index].copyWith(
+        status: 'sold',
+        sellPricePerLuong: sellPricePerLuong,
+        sellDate: sellDate,
+        sellFee: sellFee,
+        updatedAt: DateTime.now(),
+      );
       await _persistHoldings();
+    }
+  }
+
+  /// Hoàn tác bán: về lại 'holding' và xoá thông tin bán.
+  Future<void> undoSale(String id) async {
+    final index = _holdings.indexWhere((h) => h.id == id);
+    if (index >= 0) {
+      _holdings[index] = _holdings[index].copyWith(
+        status: 'holding',
+        clearSale: true,
+        updatedAt: DateTime.now(),
+      );
+      await _persistHoldings();
+    }
+  }
+
+  /// Áp dụng kết quả nhập file sao lưu (đã validate + tính sẵn bằng
+  /// `BackupCodec.plan`). Nếu ghi đĩa lỗi thì khôi phục lại state trong memory
+  /// rồi ném lại lỗi.
+  Future<void> applyImport(ImportPlan plan) async {
+    final oldHoldings = List<UserHolding>.of(_holdings);
+    final oldGoldTypes = List<GoldType>.of(_goldTypes);
+    try {
+      _goldTypes
+        ..clear()
+        ..addAll(plan.goldTypes);
+      _holdings
+        ..clear()
+        ..addAll(plan.holdings);
+      // Loại vàng ghi trước: là tập cha của cũ nên an toàn nếu bước sau lỗi.
+      await _persistGoldTypes();
+      await _persistHoldings();
+    } catch (_) {
+      _goldTypes
+        ..clear()
+        ..addAll(oldGoldTypes);
+      _holdings
+        ..clear()
+        ..addAll(oldHoldings);
+      rethrow;
     }
   }
 
@@ -211,25 +263,6 @@ class PortfolioService {
       holding: holding,
       currentBuyPricePerLuong: currentPrice,
     );
-  }
-
-  /// Export holdings as list of maps (for CSV/JSON export)
-  List<Map<String, dynamic>> exportHoldings() {
-    return _holdings.map((h) {
-      final goldType = getGoldType(h.goldTypeId);
-      return {
-        'goldType': goldType?.displayName ?? h.goldTypeId,
-        'quantity': h.quantity,
-        'unit': h.unit,
-        'quantityInLuong': h.quantityInLuong,
-        'buyPricePerLuong': h.buyPricePerLuong,
-        'fee': h.fee,
-        'totalCost': h.totalCost,
-        'buyDate': h.buyDate.toIso8601String().split('T').first,
-        'status': h.status,
-        'note': h.note ?? '',
-      };
-    }).toList();
   }
 
   Future<void> _persistHoldings() async {

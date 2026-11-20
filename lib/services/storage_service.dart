@@ -40,19 +40,25 @@ class StorageService {
     _initialized = true;
   }
 
-  /// Ghi list of map vào box: xoá sạch → ghi mới. Dùng khi cần đảm bảo
-  /// box khớp state trong memory (post-mutate save).
+  /// Ghi list of map vào box sao cho box khớp state trong memory (post-mutate
+  /// save). Ghi entry mới/đã đổi trước, rồi mới xoá các key không còn nữa —
+  /// KHÔNG `clear()` trước, vì nếu app bị kill giữa chừng thì mất sạch dữ liệu.
   static Future<void> writeMapList(
     Box<String> box,
     Iterable<Map<String, dynamic>> items, {
     required String Function(Map<String, dynamic>) keyOf,
   }) async {
-    await box.clear();
     final entries = <String, String>{};
     for (final item in items) {
       entries[keyOf(item)] = jsonEncode(item);
     }
     await box.putAll(entries);
+
+    final staleKeys =
+        box.keys.where((k) => !entries.containsKey(k)).toList();
+    if (staleKeys.isNotEmpty) {
+      await box.deleteAll(staleKeys);
+    }
   }
 
   /// Đọc toàn bộ giá trị box thành list map.

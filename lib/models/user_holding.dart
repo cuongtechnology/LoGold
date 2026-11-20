@@ -13,6 +13,11 @@ class UserHolding {
   final String? note;
   final String? invoiceImageUri;
   final String status; // "holding" or "sold"
+  // Thông tin bán — chỉ có khi đã ghi nhận giao dịch bán. Holding cũ đã
+  // 'sold' từ trước khi có các trường này sẽ để null.
+  final double? sellPricePerLuong; // giá bán thực tế / lượng (VND)
+  final DateTime? sellDate;
+  final double? sellFee; // phí phát sinh khi bán (VND)
   final DateTime createdAt;
   final DateTime updatedAt;
 
@@ -29,11 +34,18 @@ class UserHolding {
     this.note,
     this.invoiceImageUri,
     this.status = 'holding',
+    this.sellPricePerLuong,
+    this.sellDate,
+    this.sellFee,
     required this.createdAt,
     required this.updatedAt,
   });
 
-  /// Create a copy with updated fields
+  /// Đã chốt bán và có ghi giá bán (đủ để tính lãi/lỗ thực hiện).
+  bool get hasSellPrice => status == 'sold' && sellPricePerLuong != null;
+
+  /// Create a copy with updated fields.
+  /// [clearSale] = true sẽ xoá toàn bộ thông tin bán (dùng khi hoàn tác bán).
   UserHolding copyWith({
     String? id,
     String? goldTypeId,
@@ -47,6 +59,10 @@ class UserHolding {
     String? note,
     String? invoiceImageUri,
     String? status,
+    double? sellPricePerLuong,
+    DateTime? sellDate,
+    double? sellFee,
+    bool clearSale = false,
     DateTime? createdAt,
     DateTime? updatedAt,
   }) {
@@ -63,6 +79,10 @@ class UserHolding {
       note: note ?? this.note,
       invoiceImageUri: invoiceImageUri ?? this.invoiceImageUri,
       status: status ?? this.status,
+      sellPricePerLuong:
+          clearSale ? null : (sellPricePerLuong ?? this.sellPricePerLuong),
+      sellDate: clearSale ? null : (sellDate ?? this.sellDate),
+      sellFee: clearSale ? null : (sellFee ?? this.sellFee),
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
     );
@@ -82,6 +102,9 @@ class UserHolding {
       'note': note,
       'invoiceImageUri': invoiceImageUri,
       'status': status,
+      'sellPricePerLuong': sellPricePerLuong,
+      'sellDate': sellDate?.toIso8601String(),
+      'sellFee': sellFee,
       'createdAt': createdAt.toIso8601String(),
       'updatedAt': updatedAt.toIso8601String(),
     };
@@ -101,6 +124,11 @@ class UserHolding {
       note: map['note'] as String?,
       invoiceImageUri: map['invoiceImageUri'] as String?,
       status: map['status'] as String? ?? 'holding',
+      sellPricePerLuong: (map['sellPricePerLuong'] as num?)?.toDouble(),
+      sellDate: map['sellDate'] == null
+          ? null
+          : DateTime.parse(map['sellDate'] as String),
+      sellFee: (map['sellFee'] as num?)?.toDouble(),
       createdAt: DateTime.parse(map['createdAt'] as String),
       updatedAt: DateTime.parse(map['updatedAt'] as String),
     );

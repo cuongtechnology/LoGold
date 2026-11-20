@@ -8,6 +8,7 @@ import '../models/gold_price.dart';
 import '../models/price_alert.dart';
 import '../models/historical_gold_price.dart';
 import '../api/price_adapter.dart';
+import '../services/backup_codec.dart';
 import '../services/portfolio_service.dart';
 import '../services/price_service.dart';
 import '../services/notification_service.dart';
@@ -80,6 +81,17 @@ class AppStore extends ChangeNotifier {
   List<UserHolding> get holdings => _holdings;
   List<UserHolding> get activeHoldings =>
       _holdings.where((h) => h.status == 'holding').toList();
+  /// Holdings đã bán, mới bán nhất lên đầu.
+  List<UserHolding> get soldHoldings {
+    final list = _holdings.where((h) => h.status == 'sold').toList();
+    DateTime when(UserHolding h) => h.sellDate ?? h.updatedAt;
+    list.sort((a, b) => when(b).compareTo(when(a)));
+    return list;
+  }
+
+  /// Tổng lãi/lỗ đã chốt (chỉ tính holding đã bán có ghi giá bán).
+  RealizedSummary get realizedSummary =>
+      ProfitLossCalculator.calculateRealizedSummary(_holdings);
   List<GoldType> get goldTypes => _goldTypes;
   List<GoldPrice> get prices => _prices;
   PortfolioSummary? get portfolioSummary => _portfolioSummary;
@@ -405,12 +417,56 @@ class AppStore extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Mark a holding as sold
-  Future<void> markAsSold(String id) async {
-    await _portfolio.markAsSold(id);
+  /// Mark a holding as sold (kèm giá bán/lượng, ngày bán, phí bán)
+  Future<void> markAsSold(
+    String id, {
+    required double sellPricePerLuong,
+    required DateTime sellDate,
+    double sellFee = 0,
+  }) async {
+    await _portfolio.markAsSold(
+      id,
+      sellPricePerLuong: sellPricePerLuong,
+      sellDate: sellDate,
+      sellFee: sellFee,
+    );
     _holdings = _portfolio.allHoldings;
     _updatePortfolioSummary();
     notifyListeners();
+  }
+
+  /// Hoàn tác bán — về lại "đang giữ", xoá thông tin bán
+  Future<void> undoSale(String id) async {
+    await _portfolio.undoSale(id);
+    _holdings = _portfolio.allHoldings;
+    _updatePortfolioSummary();
+    notifyListeners();
+  }
+
+  /// Parse + validate nội dung file sao lưu. Ném [BackupFormatException]
+  /// (message tiếng Việt) nếu file không hợp lệ; chưa đụng tới dữ liệu.
+  BackupData parseBackup(String raw) => BackupCodec.parse(raw);
+
+  /// Số mục trong file so với dữ liệu hiện có, để hiện hộp thoại xác nhận.
+  ImportPreview previewImport(BackupData data) =>
+      BackupCodec.preview(existingHoldings: _holdings, data: data);
+
+  /// Nhập dữ liệu từ file sao lưu đã parse. Không bị giới hạn free tier.
+  /// Trả về kế hoạch đã áp dụng (số mục thêm/bỏ qua). Ném lại lỗi nếu ghi
+  /// đĩa thất bại (state memory đã được khôi phục).
+  Future<ImportPlan> importBackup(BackupData data, ImportMode mode) async {
+    final plan = BackupCodec.plan(
+      existingHoldings: _holdings,
+      existingGoldTypes: _goldTypes,
+      data: data,
+      mode: mode,
+    );
+    await _portfolio.applyImport(plan);
+    _holdings = _portfolio.allHoldings;
+    _goldTypes = _portfolio.goldTypes;
+    _updatePortfolioSummary();
+    notifyListeners();
+    return plan;
   }
 
   /// Duplicate a holding

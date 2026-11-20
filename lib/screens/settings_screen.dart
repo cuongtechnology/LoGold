@@ -1,5 +1,7 @@
+import 'dart:convert';
 import 'dart:io';
 
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
@@ -8,6 +10,7 @@ import 'package:share_plus/share_plus.dart';
 
 import '../constants/app_constants.dart';
 import '../stores/app_store.dart';
+import '../services/backup_codec.dart';
 import '../services/export_service.dart';
 import '../services/review_service.dart';
 import '../components/ui_components.dart';
@@ -103,6 +106,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 title: 'Xuất JSON',
                 subtitle: 'Xuất dữ liệu ra file JSON (backup)',
                 onTap: () => _exportData(context, 'json'),
+              ),
+              _buildActionTile(
+                icon: Icons.restore,
+                title: 'Khôi phục từ file sao lưu',
+                subtitle: 'Nhập lại danh mục từ file JSON đã xuất',
+                onTap: () => _importBackup(context, store),
               ),
               const SizedBox(height: 16),
 
@@ -449,7 +458,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final String fileName;
 
     if (format == 'csv') {
-      data = export.exportToCSV();
+      // BOM UTF-8 để Excel (Windows) hiện đúng tiếng Việt.
+      data = export.exportToCSV(withBom: true);
       fileName = 'lo_holdings.csv';
     } else {
       data = export.exportToJSON();
@@ -477,6 +487,116 @@ class _SettingsScreenState extends State<SettingsScreen> {
         ),
       );
     }
+  }
+
+  /// Chọn file .json → validate → hỏi gộp/thay thế → nhập. Mọi lỗi được báo
+  /// bằng SnackBar tiếng Việt, không để lộ exception thô.
+  Future<void> _importBackup(BuildContext context, AppStore store) async {
+    final BackupData data;
+    try {
+      final picked = await FilePicker.pickFile(
+        type: FileType.custom,
+        allowedExtensions: const ['json'],
+      );
+      if (picked == null) return; // user huỷ
+
+      // readAsBytes hoạt động cả trên web (không có path) lẫn Android/iOS.
+      final bytes = await picked.readAsBytes();
+      if (bytes.length > BackupCodec.maxInputLength) {
+        throw const BackupFormatException(
+            'File quá lớn, không phải file sao lưu hợp lệ.');
+      }
+      final String raw;
+      try {
+        raw = utf8.decode(bytes);
+      } on FormatException {
+        throw const BackupFormatException(
+          'File không đọc được. Hãy chọn file .json được xuất từ ứng dụng.',
+        );
+      }
+      data = store.parseBackup(raw);
+    } on BackupFormatException catch (e) {
+      if (context.mounted) _showImportSnack(context, e.message, isError: true);
+      return;
+    } catch (_) {
+      if (context.mounted) {
+        _showImportSnack(
+          context,
+          'Không mở được file. Vui lòng thử lại hoặc chọn file khác.',
+          isError: true,
+        );
+      }
+      return;
+    }
+
+    if (!context.mounted) return;
+    final mode = await _askImportMode(context, store.previewImport(data));
+    if (mode == null) return;
+
+    try {
+      final plan = await store.importBackup(data, mode);
+      if (!context.mounted) return;
+      _showImportSnack(
+        context,
+        mode == ImportMode.replace
+            ? 'Đã khôi phục ${plan.addedCount} mục từ file sao lưu'
+            : 'Đã thêm ${plan.addedCount} mục, bỏ qua ${plan.skippedCount} mục đã có',
+      );
+    } catch (_) {
+      if (context.mounted) {
+        _showImportSnack(
+          context,
+          'Khôi phục thất bại, dữ liệu hiện tại vẫn được giữ nguyên.',
+          isError: true,
+        );
+      }
+    }
+  }
+
+  void _showImportSnack(BuildContext context, String message,
+      {bool isError = false}) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: isError ? AppColors.loss : AppColors.bgCard,
+      ),
+    );
+  }
+
+  Future<ImportMode?> _askImportMode(
+      BuildContext context, ImportPreview preview) {
+    return showDialog<ImportMode>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: AppColors.bgCard,
+        title: const Text(
+          'Khôi phục dữ liệu',
+          style: TextStyle(color: AppColors.gold),
+        ),
+        content: Text(
+          'File sao lưu có ${preview.totalInFile} mục '
+          '(${preview.newCount} mục chưa có trên máy). '
+          'Hiện trên máy có ${preview.currentCount} mục.\n\n'
+          '• Gộp: thêm các mục chưa có, giữ nguyên dữ liệu hiện tại.\n'
+          '• Thay thế: xóa toàn bộ danh mục hiện tại và dùng nội dung file.',
+          style: const TextStyle(color: AppColors.textSecondary, fontSize: 14),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Hủy'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, ImportMode.replace),
+            child: const Text('Thay thế', style: TextStyle(color: AppColors.loss)),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, ImportMode.merge),
+            child: const Text('Gộp', style: TextStyle(color: AppColors.gold)),
+          ),
+        ],
+      ),
+    );
   }
 
   void _showPushInfoDialog(BuildContext context, AppStore store) {
