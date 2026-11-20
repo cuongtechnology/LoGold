@@ -14,6 +14,25 @@ class Formatters {
     return '$formatted$symbol';
   }
 
+  /// Parse a VND amount typed by the user.
+  /// VND has no fractional part, so every non-digit is treated as a separator:
+  /// "116.000.000", "116,000,000", "116 000 000đ" -> 116000000.
+  /// Returns null when no digits are present.
+  static double? parseMoney(String input) {
+    final digits = input.replaceAll(RegExp(r'[^0-9]'), '');
+    if (digits.isEmpty) return null;
+    return double.tryParse(digits);
+  }
+
+  /// Parse a gold quantity typed by the user, accepting "," or "." as the
+  /// decimal separator: "0,5" and "0.5" -> 0.5.
+  /// Returns null for empty or malformed input.
+  static double? parseQuantity(String input) {
+    final normalized = input.trim().replaceAll(' ', '').replaceAll(',', '.');
+    if (normalized.isEmpty) return null;
+    return double.tryParse(normalized);
+  }
+
   /// Format VND in compact form for large numbers
   /// Example: 1230000 -> "1.23tr", 500000 -> "500k"
   static String formatVndCompact(double value) {

@@ -22,6 +22,10 @@
 	<string>????</string>
 	<key>CFBundleVersion</key>
 	<string>$(FLUTTER_BUILD_NUMBER)</string>
+	<!-- App chỉ dùng HTTPS chuẩn của hệ điều hành, không có mã hoá riêng →
+	     khai báo để App Store Connect không hỏi Export Compliance mỗi build. -->
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
 	<key>UILaunchStoryboardName</key>
@@ -50,6 +54,8 @@
 	     https://developers.google.com/admob/ios/test-ads -->
 	<key>GADApplicationIdentifier</key>
 	<string>ca-app-pub-3940256099942544~1458002511</string>
+	<key>NSFaceIDUsageDescription</key>
+	<string>Lỗ dùng Face ID để mở khoá ứng dụng nhanh hơn thay cho nhập mã PIN.</string>
 	<key>NSUserTrackingUsageDescription</key>
 	<string>Lỗ dùng dữ liệu này để hiện quảng cáo phù hợp hơn với bạn.</string>
 	<key>SKAdNetworkItems</key>

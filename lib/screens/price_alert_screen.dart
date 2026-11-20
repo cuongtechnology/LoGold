@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:uuid/uuid.dart';
 
@@ -528,11 +527,10 @@ class _AddAlertDialogState extends State<_AddAlertDialog> {
               TextField(
                 controller: _priceController,
                 keyboardType: TextInputType.number,
-                inputFormatters: [FilteringTextInputFormatter.digitsOnly],
                 decoration: _inputDecoration('VD: 120000000'),
                 style: const TextStyle(color: AppColors.textPrimary),
                 onChanged: (val) => setState(() {
-                  _targetPrice = double.tryParse(val) ?? 0;
+                  _targetPrice = Formatters.parseMoney(val) ?? 0;
                   _inferDirection();
                 }),
               ),
@@ -549,14 +547,13 @@ class _AddAlertDialogState extends State<_AddAlertDialog> {
               TextField(
                 controller: _plController,
                 keyboardType: TextInputType.number,
-                inputFormatters: [FilteringTextInputFormatter.digitsOnly],
                 decoration: _inputDecoration(
                   _selectedType == PriceAlertType.lossThreshold
                       ? 'VD: 5000000 (lỗ 5 triệu)'
                       : 'VD: 10000000 (lãi 10 triệu)',
                 ),
                 style: const TextStyle(color: AppColors.textPrimary),
-                onChanged: (val) => _targetPL = double.tryParse(val) ?? 0,
+                onChanged: (val) => _targetPL = Formatters.parseMoney(val) ?? 0,
               ),
             ],
             if (_selectedType == PriceAlertType.breakeven) ...[

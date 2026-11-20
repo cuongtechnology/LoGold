@@ -175,7 +175,9 @@ class _AppGateState extends State<_AppGate> with WidgetsBindingObserver {
     final store = context.read<AppStore>();
     if (state == AppLifecycleState.paused) {
       store.stopAutoRefresh();
-      if (store.pinEnabled && _unlocked) {
+      // Hộp thoại vân tay/Face ID cũng làm app `paused` trên vài máy — không
+      // coi đó là ra nền, nếu không sẽ khoá lại ngay sau khi vừa xác thực.
+      if (store.pinEnabled && _unlocked && !store.isBiometricPromptActive) {
         setState(() => _unlocked = false);
       }
     } else if (state == AppLifecycleState.resumed) {
