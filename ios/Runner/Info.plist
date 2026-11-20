@@ -56,8 +56,6 @@
 	<string>ca-app-pub-3940256099942544~1458002511</string>
 	<key>NSFaceIDUsageDescription</key>
 	<string>Lỗ dùng Face ID để mở khoá ứng dụng nhanh hơn thay cho nhập mã PIN.</string>
-	<key>NSUserTrackingUsageDescription</key>
-	<string>Lỗ dùng dữ liệu này để hiện quảng cáo phù hợp hơn với bạn.</string>
 	<key>SKAdNetworkItems</key>
 	<array>
 		<dict>
