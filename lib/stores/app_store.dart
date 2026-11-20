@@ -97,6 +97,12 @@ class AppStore extends ChangeNotifier {
   PortfolioSummary? get portfolioSummary => _portfolioSummary;
   List<PriceAlert> get alerts => _notificationService.alerts;
   List<AppNotification> get notifications => _notificationService.notifications;
+
+  void clearNotifications() {
+    _notificationService.clearNotifications();
+    notifyListeners();
+  }
+
   PriceSourceStatus get priceStatus => _priceService.status;
   String get priceStatusMessage => _priceService.statusMessage;
   /// Lần lấy giá thành công gần nhất (kể cả giá đã lưu từ phiên trước).

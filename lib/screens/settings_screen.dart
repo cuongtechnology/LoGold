@@ -1,10 +1,8 @@
 import 'dart:convert';
-import 'dart:io';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:path_provider/path_provider.dart';
 import 'package:provider/provider.dart';
 import 'package:share_plus/share_plus.dart';
 
@@ -467,15 +465,22 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
 
     try {
-      final dir = await getTemporaryDirectory();
-      final file = File('${dir.path}/$fileName');
-      await file.writeAsString(data);
-
-      if (!context.mounted) return;
+      // XFile.fromData chạy được cả trên web (không có hệ thống file) lẫn
+      // mobile — share_plus tự ghi file tạm khi cần.
+      final file = XFile.fromData(
+        Uint8List.fromList(utf8.encode(data)),
+        name: fileName,
+        mimeType: format == 'csv' ? 'text/csv' : 'application/json',
+      );
+      // iPad bắt buộc có vị trí neo cho bảng chia sẻ, thiếu là crash.
+      final box = context.findRenderObject() as RenderBox?;
       await SharePlus.instance.share(
         ShareParams(
-          files: [XFile(file.path)],
+          files: [file],
+          fileNameOverrides: [fileName],
           text: 'Xuất dữ liệu từ Lỗ nhiều chưa?',
+          sharePositionOrigin:
+              box == null ? null : box.localToGlobal(Offset.zero) & box.size,
         ),
       );
     } catch (e) {

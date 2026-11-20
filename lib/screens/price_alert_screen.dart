@@ -358,7 +358,7 @@ class _PriceAlertScreenState extends State<PriceAlertScreen>
           ),
           TextButton(
             onPressed: () {
-              // Clear notifications
+              store.clearNotifications();
               Navigator.pop(context);
               ScaffoldMessenger.of(context).showSnackBar(
                 const SnackBar(
