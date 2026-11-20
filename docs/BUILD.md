@@ -1,6 +1,6 @@
 # Hướng dẫn build – Lỗ (LoGold)
 
-Tài liệu mô tả cách chạy test, build Android, iOS và Web cho app **Lỗ nhiều chưa?** (`vn.lo.app`), cách ký app, CI trên Codemagic và các lỗi hay gặp.
+Tài liệu mô tả cách chạy test, build Android, iOS và Web cho app **Lỗ nhiều chưa?** (`vn.lo.app`), cách ký app, CI trên GitHub Actions (dự phòng: Codemagic) và các lỗi hay gặp.
 
 ## 1. Phiên bản công cụ
 
@@ -8,13 +8,13 @@ Tài liệu mô tả cách chạy test, build Android, iOS và Web cho app **L�
 |---|---|---|
 | Flutter | **≥ 3.44** (do `pubspec.lock` yêu cầu) | `pubspec.lock` → `sdks:` |
 | Dart | ≥ 3.12 (`google_mobile_ads` 9.x cần ≥ 3.10) | `pubspec.lock` |
-| JDK | 17 | `codemagic.yaml` |
+| JDK | 17 | `.github/workflows/build.yml` |
 | Gradle wrapper | 8.12 | `android/gradle/wrapper/gradle-wrapper.properties` |
 | Android Gradle Plugin | 8.9.1 | `android/settings.gradle.kts` |
 | Kotlin | 2.3.0 (bắt buộc cho `google_mobile_ads`) | `android/settings.gradle.kts` |
-| iOS | CocoaPods (`pod install` trên CI) | `ios/` |
+| iOS | Tối thiểu 15.0; Swift Package Manager + CocoaPods (`flutter build` tự xử lý) | `ios/Podfile`, `project.pbxproj` |
 
-> ⚠️ Trong `codemagic.yaml`, hai workflow iOS dùng Flutter 3.47.5, còn `web-android-workflow` vẫn ghim `flutter: 3.35.4` (Dart 3.9.2). Bản 3.35.4 **không** chạy được `pub get` với lock hiện tại, vì lock yêu cầu Flutter ≥ 3.44. Cần đổi sang đúng phiên bản Flutter đang dùng để tạo `pubspec.lock`.
+> ⚠️ CI GitHub Actions dùng Flutter **3.47.5**. Flutter cũ hơn 3.44 (ví dụ 3.35.4, vẫn đang ghim ở `web-android-workflow` của `codemagic.yaml`) **không** chạy được `pub get` với lock hiện tại.
 >
 > Flutter 3.47 trở lên yêu cầu AGP ≥ 8.11.1, trong khi project dùng 8.9.1. Có hai cách: nâng AGP trong `android/settings.gradle.kts`, hoặc build kèm cờ `--android-skip-build-dependency-validation`.
 >
@@ -85,7 +85,7 @@ keyPassword=...
 
 Keystore đặt tại `android/app/lo-release.jks`. Cả hai file đều bị git bỏ qua.
 
-> ⚠️ App đã có trên Play Console. **Chỉ được ký bằng upload key gốc** (bản đang lưu base64 trong biến `CM_KEYSTORE_B64` trên Codemagic). Ký bằng key khác thì Play Console từ chối bản cập nhật. Phải sao lưu keystore và mật khẩu.
+> ⚠️ App đã có trên Play Console. **Chỉ được ký bằng upload key gốc** (bản đang lưu base64 trong secret `ANDROID_KEYSTORE_B64` trên GitHub và biến `CM_KEYSTORE_B64` trên Codemagic). Ký bằng key khác thì Play Console từ chối bản cập nhật. Phải sao lưu keystore và mật khẩu.
 
 Kiểm tra chữ ký của APK:
 
@@ -119,12 +119,13 @@ Kết quả nằm ở `build/web/`. Trên web, giá vàng phải đi qua Cloudfl
 
 ## 7. iOS
 
-Build iOS bắt buộc có macOS và Xcode. Máy dev chạy Windows nên build trên Codemagic. Tất cả các bước dưới đây làm được bằng trình duyệt trên Windows.
+Build iOS bắt buộc có macOS và Xcode. Máy dev chạy Windows nên build trên runner macOS của **GitHub Actions** (job `build-ios` trong `.github/workflows/build.yml`). Tất cả các bước dưới đây làm được bằng trình duyệt trên Windows.
 
-| Workflow | Chạy khi | Kết quả |
-|---|---|---|
-| `ios-workflow` | Tag `v*` | IPA **chưa ký**, chỉ để kiểm tra build |
-| `ios-testflight-workflow` | Chạy tay | IPA đã ký, tự upload lên **TestFlight** |
+Job `build-ios` chạy khi push tag `v*` hoặc khi chạy tay:
+- Có đủ 4 secret ở bước 4 → ký app, build IPA và **upload lên TestFlight**.
+- Thiếu secret → chỉ build IPA **chưa ký** để kiểm tra (artifact `ipa-unsigned-<số>`).
+
+Việc ký app dùng [codemagic-cli-tools](https://github.com/codemagic-ci-cd/cli-tools) (công cụ mã nguồn mở, chạy được ngoài Codemagic): tự tạo chứng chỉ Apple Distribution và provisioning profile qua App Store Connect API, không cần Mac hay Xcode trên máy mình.
 
 Cấu hình iOS trong project: bundle ID `vn.lo.app`, iOS tối thiểu **15.0** (Firebase 12 yêu cầu, khai báo ở `ios/Podfile` và `project.pbxproj`), `ITSAppUsesNonExemptEncryption = false` để App Store Connect không hỏi Export Compliance mỗi build.
 
@@ -136,7 +137,7 @@ Cấu hình iOS trong project: bundle ID `vn.lo.app`, iOS tối thiểu **15.0**
 - SKU: chuỗi bất kỳ, ví dụ `lo-gold`.
 
 **Bước 2. Tạo App Store Connect API key.** App Store Connect → Users and Access → **Integrations** → App Store Connect API → Team Keys → **+**:
-- Tên: `Codemagic`. Access: **App Manager**.
+- Tên: `GitHub Actions`. Access: **App Manager**.
 - Tải file `AuthKey_XXXXXXXXXX.p8`. Apple **chỉ cho tải một lần**, phải cất kỹ.
 - Ghi lại **Issuer ID** (đầu trang) và **Key ID** (cột của key vừa tạo).
 
@@ -146,9 +147,9 @@ Cấu hình iOS trong project: bundle ID `vn.lo.app`, iOS tối thiểu **15.0**
 ssh-keygen -t rsa -b 2048 -m PEM -f "$HOME\keystores\ios_distribution_private_key" -q -N '""'
 ```
 
-Codemagic dùng key này để tạo chứng chỉ Apple Distribution ở lần build đầu, rồi dùng lại ở các lần sau. **Không** commit file này vào git; cất cùng chỗ với keystore Android.
+Lần build đầu dùng key này để tạo chứng chỉ Apple Distribution, các lần sau dùng lại chứng chỉ đó. **Không** commit file này vào git; cất cùng chỗ với keystore Android.
 
-**Bước 4. Khai báo biến trên Codemagic.** Codemagic → Team settings → **Environment variables**, tạo group **`ios_release`** gồm 4 biến, đều đánh dấu **Secure**:
+**Bước 4. Khai báo secret trên GitHub.** Repo LoGold → **Settings** → Secrets and variables → **Actions** → New repository secret, tạo 4 secret:
 
 | Biến | Giá trị |
 |---|---|
@@ -159,18 +160,22 @@ Codemagic dùng key này để tạo chứng chỉ Apple Distribution ở lần 
 
 ### 7.2. Build và đẩy lên TestFlight
 
-1. Push code lên GitHub (Codemagic đọc `codemagic.yaml` trên nhánh được chọn).
-2. Codemagic → app LoGold → **Start new build** → chọn nhánh, workflow **iOS TestFlight** → Start.
-3. Khoảng 15–25 phút sau, build xuất hiện trong App Store Connect → TestFlight. Apple cần thêm 5–30 phút để xử lý build ("Processing").
-4. Thêm người test: TestFlight → **Internal Testing** → tạo nhóm, thêm Apple ID (tối đa 100 người, không cần Apple duyệt). Người test cài app **TestFlight** trên iPhone rồi nhận lời mời.
+1. Chạy workflow, chọn một trong hai cách:
+   - Trên web: repo → **Actions** → **Build** → **Run workflow** → chọn nhánh → Run.
+   - Bằng lệnh: `gh workflow run build.yml --ref <nhánh>`.
+   - Hoặc push tag: `git tag v0.1.0 && git push origin v0.1.0`. Cách này còn tạo GitHub Release.
+2. Khoảng 20–30 phút sau, build xuất hiện trong App Store Connect → TestFlight. Apple cần thêm 5–30 phút để xử lý build ("Processing").
+3. Thêm người test: TestFlight → **Internal Testing** → tạo nhóm, thêm Apple ID (tối đa 100 người, không cần Apple duyệt). Người test cài app **TestFlight** trên iPhone rồi nhận lời mời.
 
-Build number lấy từ số build của Codemagic (`$BUILD_NUMBER`), tự tăng. Version name (`0.1.0`) lấy từ `pubspec.yaml`.
+Build number lấy từ số lần chạy workflow (`github.run_number`), tự tăng. Version name (`0.1.0`) lấy từ `pubspec.yaml`. File IPA đã ký cũng được lưu ở artifact `ipa-signed-<số>` của lần chạy.
+
+Repo đang để **public** nên phút chạy Actions miễn phí, kể cả runner macOS. Nếu chuyển repo sang private, mỗi phút macOS tính bằng 10 phút trong hạn mức.
 
 ### 7.3. Việc cần làm trước khi nộp App Store (chưa bắt buộc cho TestFlight)
 
 - **AdMob:** `ios/Runner/Info.plist` (`GADApplicationIdentifier`) và `lib/services/ad_service.dart` đang dùng **ID test của Google**. Tạo app iOS trên AdMob Console rồi thay bằng ID thật. Quảng cáo test vẫn hiện bình thường trên TestFlight.
 - **Push notification:** trên iOS hiện **chưa hoạt động** (app tự bỏ qua, không crash). Để bật cần:
-  1. Firebase Console → thêm app iOS `vn.lo.app` → tải `GoogleService-Info.plist`. File này đang bị git bỏ qua, nên lưu base64 vào Codemagic và giải mã ra `ios/Runner/` trong một bước script.
+  1. Firebase Console → thêm app iOS `vn.lo.app` → tải `GoogleService-Info.plist`. File này đang bị git bỏ qua, nên lưu base64 vào một GitHub secret và giải mã ra `ios/Runner/` trong một bước của job `build-ios`.
   2. developer.apple.com → Keys → tạo **APNs key** → upload lên Firebase (Project settings → Cloud Messaging → Apple app configuration).
   3. Bật capability Push Notifications cho App ID `vn.lo.app`, thêm `ios/Runner/Runner.entitlements` (`aps-environment = production`) và `CODE_SIGN_ENTITLEMENTS` vào project.
 - **App Store listing:** ảnh chụp màn hình iPhone 6.9" và 6.5", mô tả, chính sách bảo mật (`docs/index.html`), khai báo App Privacy (AdMob thu thập dữ liệu quảng cáo).
@@ -183,7 +188,9 @@ Build number lấy từ số build của Codemagic (`$BUILD_NUMBER`), tự tăng
 | `There is a problem with the request entity ... maximum number of certificates` | Tài khoản đã có 3 chứng chỉ Distribution. Thu hồi bớt một cái ở developer.apple.com → Certificates |
 | `Unable to find a bundle identifier vn.lo.app` | Chưa tạo App ID (bước 1) |
 | `required a higher minimum deployment target` | Một pod yêu cầu iOS cao hơn 15.0. Nâng `platform :ios` trong `ios/Podfile` và `IPHONEOS_DEPLOYMENT_TARGET` trong `project.pbxproj` |
-| Upload báo `bundle version must be higher` | Build number trùng với một build đã upload. Chạy lại workflow để có `$BUILD_NUMBER` lớn hơn |
+| Upload báo `bundle version must be higher` | Build number trùng với một build đã upload. Chạy lại workflow để có `run_number` lớn hơn |
+| Job báo "The job was not started because your account is locked due to a billing issue" | Tài khoản GitHub bị khóa vì lỗi thanh toán. Vào github.com → Settings → **Billing and licensing**, cập nhật thẻ hoặc thanh toán khoản nợ |
+| `Thiếu secret App Store Connect — chỉ build IPA chưa ký` | Chưa tạo đủ 4 secret ở bước 4, hoặc chạy từ pull request của fork (GitHub không truyền secret vào đó) |
 | Email Apple "ITMS-90078: Missing Push Notification Entitlement" | Chỉ là cảnh báo, do `UIBackgroundModes` có `remote-notification`. Hết khi làm xong phần push ở 7.3 |
 
 ## 8. Cloudflare Worker
@@ -196,15 +203,40 @@ cd worker && bash DEPLOY.sh
 
 Yêu cầu Node ≥ 18 và tài khoản Cloudflare. Xem phần đầu `worker/DEPLOY.sh` để biết cách dùng API token khi chạy trên máy không có trình duyệt.
 
-## 9. CI/CD – Codemagic (`codemagic.yaml`)
+## 9. CI/CD
 
-| Workflow | Chạy khi | Các bước | Kết quả |
+### 9.1. GitHub Actions (`.github/workflows/build.yml`) – CI chính
+
+Workflow `Build` chạy khi push lên `main`, mở pull request vào `main`, push tag `v*`, hoặc chạy tay (`workflow_dispatch`).
+
+| Job | Runner | Chạy khi | Kết quả |
 |---|---|---|---|
-| `web-android-workflow` (Linux) | Push lên `main`, tag `v*` | pub get → analyze → **test** → build web, APK debug/release, AAB | `lo-web.zip`, APK, AAB, `mapping.txt`; tag `v*` tạo GitHub Release |
-| `ios-workflow` (Mac mini M2) | Tag `v*` | pub get → build iOS không ký | `lo-ios-unsigned.ipa` |
-| `ios-testflight-workflow` (Mac mini M2) | Chạy tay | pub get → lấy/tạo chứng chỉ + profile → build IPA | IPA đã ký, upload TestFlight |
+| `analyze`, `test` | Ubuntu | Mọi lần | — |
+| `build-web` | Ubuntu | Mọi lần | Artifact `web-<sha>`; tag `v*` thêm file zip |
+| `build-android` | Ubuntu | Mọi lần | APK debug; tag `v*` thêm APK và AAB release đã ký |
+| `build-ios` | macOS | Tag `v*` hoặc chạy tay | IPA đã ký và upload TestFlight (hoặc IPA chưa ký nếu thiếu secret) |
+| `release` | Ubuntu | Tag `v*` | GitHub Release kèm APK, AAB, IPA, web zip |
 
-Bí mật iOS nằm trong group **`ios_release`** (xem mục 7.1). Bí mật Android lưu ở Codemagic → Team settings → Environment variables, group **`android_release`**: `CM_KEYSTORE_B64` (keystore mã hóa base64), `CM_KEYSTORE_PASSWORD`, `CM_KEY_ALIAS`, `CM_KEY_PASSWORD`. Bước "Setup Android signing" sẽ giải mã keystore thành `android/app/lo-release.jks` và tạo `android/key.properties`.
+Repository secrets (Settings → Secrets and variables → Actions):
+
+| Secret | Dùng cho |
+|---|---|
+| `ANDROID_KEYSTORE_B64`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, `ANDROID_KEY_PASSWORD` | Ký APK/AAB release. Keystore được giải mã thành `android/app/lo-release.jks`, kèm `android/key.properties` |
+| `APP_STORE_CONNECT_ISSUER_ID`, `APP_STORE_CONNECT_KEY_IDENTIFIER`, `APP_STORE_CONNECT_PRIVATE_KEY`, `CERTIFICATE_PRIVATE_KEY` | Ký iOS và upload TestFlight (mục 7.1) |
+
+Workflow dùng Flutter 3.47.5 (`FLUTTER_VERSION`) và build Android kèm `--android-skip-build-dependency-validation` (`ANDROID_BUILD_FLAGS`), vì AGP của project là 8.9.1.
+
+### 9.2. Codemagic (`codemagic.yaml`) – dự phòng
+
+Cấu hình tương tự vẫn được giữ trong `codemagic.yaml`, để dùng khi GitHub Actions gặp sự cố:
+
+| Workflow | Chạy khi | Kết quả |
+|---|---|---|
+| `web-android-workflow` (Linux) | Push lên `main`, tag `v*` | Web, APK, AAB |
+| `ios-workflow` (Mac mini M2) | Tag `v*` | `lo-ios-unsigned.ipa` |
+| `ios-testflight-workflow` (Mac mini M2) | Chạy tay | IPA đã ký, upload TestFlight |
+
+Trên Codemagic, bí mật iOS nằm trong env group `ios_release` (cùng 4 tên biến như GitHub). Bí mật Android nằm trong group `android_release`: `CM_KEYSTORE_B64`, `CM_KEYSTORE_PASSWORD`, `CM_KEY_ALIAS`, `CM_KEY_PASSWORD`. `web-android-workflow` vẫn ghim Flutter 3.35.4, phiên bản này không chạy được với `pubspec.lock` hiện tại.
 
 ## 10. Lỗi thường gặp
 
