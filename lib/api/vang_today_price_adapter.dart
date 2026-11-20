@@ -8,10 +8,8 @@ import 'price_adapter.dart';
 /// VangTodayPriceAdapter — fetch giá vàng từ API công khai `vang.today`.
 ///
 /// **Vì sao dùng nguồn này**: miễn phí, không cần API key, bật CORS
-/// (`Access-Control-Allow-Origin: *`) nên gọi được cả từ web build — không
-/// cần proxy qua CF Worker như `SjcPriceAdapter` phải làm để né
-/// Cloudflare-challenge/CORS. Giá trong nước trả sẵn VND/lượng, không cần
-/// quy đổi như DOJI HTML ("nghìn/chỉ").
+/// (`Access-Control-Allow-Origin: *`) nên gọi được cả từ web build, không cần
+/// proxy. Giá trong nước trả sẵn VND/lượng, không cần quy đổi.
 ///
 /// **Lưu ý quan trọng**: trang docs (`vang.today/vi/api`) ghi response shape
 /// `{"success", "data": [{"type_code", ...}]}` nhưng response THỰC TẾ (đã

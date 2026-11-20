@@ -62,9 +62,9 @@ class HivePriceCacheStorage implements PriceCacheStorage {
 /// PriceService - Central service for fetching and caching gold prices.
 ///
 /// Uses the adapter pattern to support multiple price sources.
-/// `fetchCurrentPrices` thử adapter đang active trước, rồi lần lượt các
-/// adapter còn lại (theo thứ tự đăng ký) cho tới khi có kết quả. Giá thành
-/// công gần nhất được lưu xuống đĩa; nếu mọi nguồn đều lỗi thì vẫn trả giá
+/// `fetchCurrentPrices` thử adapter đang active trước; nếu lỗi thì gọi mọi
+/// adapter còn lại và gộp kết quả (trùng loại vàng thì adapter đăng ký trước
+/// thắng). Giá thành công gần nhất được lưu xuống đĩa; nếu mọi nguồn đều lỗi thì vẫn trả giá
 /// đã lưu và đánh dấu `stale`.
 class PriceService {
   static PriceService? _instance;
@@ -146,33 +146,23 @@ class PriceService {
       _statusMessage = 'Đang tải giá...';
     }
 
-    for (final adapter in _adapterOrder) {
-      try {
-        if (!await adapter.isAvailable()) continue;
-        final prices = await adapter.fetchPrices();
-        if (prices.isEmpty) continue;
+    final order = _adapterOrder;
 
-        for (final price in prices) {
-          _priceCache[price.goldTypeId] = price;
-        }
-        _lastUpdated = _now();
-        _status = PriceSourceStatus.fresh;
-        _statusMessage = 'Đã cập nhật giá vàng';
-        // Lưu nền — lỗi ghi đĩa không ảnh hưởng kết quả fetch.
-        final storage = _storage;
-        if (storage != null) {
-          storage.save(PriceCacheSnapshot(
-            prices: _priceCache.values.toList(),
-            fetchedAt: _lastUpdated!,
-          ));
-        }
-        return prices;
-      } catch (e) {
-        if (kDebugMode) {
-          debugPrint('PriceService: nguồn ${adapter.sourceKey} lỗi: $e');
-        }
+    // Nguồn chính phủ đủ mọi loại vàng — thành công thì không cần hỏi thêm.
+    final primary = await _tryFetch(order.first);
+    if (primary.isNotEmpty) return _accept(primary);
+
+    // Nguồn chính lỗi: hỏi song song mọi nguồn dự phòng rồi gộp lại, vì mỗi
+    // nguồn dự phòng chỉ có một phần các loại vàng (SJC, PNJ, Worker...).
+    // Trùng loại thì nguồn đăng ký trước thắng.
+    final results = await Future.wait(order.skip(1).map(_tryFetch));
+    final merged = <String, GoldPrice>{};
+    for (final prices in results) {
+      for (final price in prices) {
+        merged.putIfAbsent(price.goldTypeId, () => price);
       }
     }
+    if (merged.isNotEmpty) return _accept(merged.values.toList());
 
     // Mọi nguồn đều thất bại.
     if (_priceCache.isNotEmpty) {
@@ -182,6 +172,36 @@ class PriceService {
       _statusMessage = 'Không tải được giá vàng, kiểm tra mạng rồi kéo xuống để thử lại';
     }
     return getAllPrices();
+  }
+
+  /// Gọi 1 adapter; lỗi / không khả dụng / rỗng đều trả list rỗng.
+  Future<List<GoldPrice>> _tryFetch(PriceAdapter adapter) async {
+    try {
+      if (!await adapter.isAvailable()) return const [];
+      return await adapter.fetchPrices();
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint('PriceService: nguồn ${adapter.sourceKey} lỗi: $e');
+      }
+      return const [];
+    }
+  }
+
+  /// Ghi giá mới vào cache (loại nào nguồn không có thì giữ giá cũ), đánh
+  /// dấu fresh và lưu xuống đĩa.
+  List<GoldPrice> _accept(List<GoldPrice> prices) {
+    for (final price in prices) {
+      _priceCache[price.goldTypeId] = price;
+    }
+    _lastUpdated = _now();
+    _status = PriceSourceStatus.fresh;
+    _statusMessage = 'Đã cập nhật giá vàng';
+    // Lưu nền — lỗi ghi đĩa không ảnh hưởng kết quả fetch.
+    _storage?.save(PriceCacheSnapshot(
+      prices: _priceCache.values.toList(),
+      fetchedAt: _lastUpdated!,
+    ));
+    return prices;
   }
 
   void _markStale() {

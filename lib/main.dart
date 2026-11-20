@@ -1,12 +1,12 @@
 import 'dart:async';
 
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:google_fonts/google_fonts.dart';
 
+import 'api/cafef_price_adapter.dart';
 import 'api/cloudflare_worker_price_adapter.dart';
-import 'api/sjc_price_adapter.dart';
+import 'api/pnj_price_adapter.dart';
 import 'api/vang_today_price_adapter.dart';
 import 'constants/app_constants.dart';
 import 'services/ad_service.dart';
@@ -49,11 +49,11 @@ Future<void> main() async {
   unawaited(AiMemeService.instance.load(_kWorkerUrl));
 }
 
-/// `VangTodayPriceAdapter` luôn là nguồn giá mặc định (API miễn phí, bật
-/// CORS, chạy được cả web lẫn mobile không cần proxy) — set `LO_WORKER_URL`
-/// KHÔNG đổi nguồn giá, chỉ bật tính năng push (xem `main()`).
-/// `SjcPriceAdapter`/`CloudflareWorkerPriceAdapter` vẫn đăng ký làm nguồn dự
-/// phòng (mobile) nếu sau này cần chuyển tay qua `PriceService.setActiveAdapter`.
+/// `VangTodayPriceAdapter` là nguồn giá chính (API miễn phí, bật CORS, đủ
+/// mọi loại vàng app track). Khi nó lỗi, `PriceService` gọi mọi nguồn dự
+/// phòng dưới đây và gộp lại — thứ tự đăng ký = độ ưu tiên khi trùng loại:
+/// CafeF (giá SJC niêm yết) → PNJ chính chủ → CF Worker (gộp nhiều nguồn, chỉ
+/// khi build có `LO_WORKER_URL`). `LO_WORKER_URL` còn bật push (xem `main()`).
 void _configurePriceAdapters() {
   final price = PriceService.instance;
 
@@ -61,9 +61,8 @@ void _configurePriceAdapters() {
   price.registerAdapter(vangToday);
   price.setActiveAdapter(vangToday.sourceKey);
 
-  if (!kIsWeb) {
-    price.registerAdapter(SjcPriceAdapter());
-  }
+  price.registerAdapter(CafefPriceAdapter());
+  price.registerAdapter(PnjPriceAdapter());
 
   if (_kWorkerUrl.isNotEmpty) {
     price.registerAdapter(CloudflareWorkerPriceAdapter(baseUrl: _kWorkerUrl));

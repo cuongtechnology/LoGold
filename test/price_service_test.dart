@@ -69,11 +69,55 @@ void main() {
 
     final result = await service.fetchCurrentPrices();
 
-    expect(_FakeAdapter.calls, ['b', 'a', 'c']); // dừng ở c, không gọi d
+    // Nguồn chính (b) lỗi → gọi mọi nguồn còn lại; trùng loại thì nguồn
+    // đăng ký trước (c) thắng.
+    expect(_FakeAdapter.calls, ['b', 'a', 'c', 'd']);
     expect(result.single.source, 'c');
     expect(service.status, PriceSourceStatus.fresh);
     expect(service.getBuyPrice('sjc'), 100);
     expect(service.lastUpdated, isNotNull);
+  });
+
+  test('nguồn chính thành công thì không gọi nguồn dự phòng', () async {
+    final main = _FakeAdapter('main', prices: [_price('sjc', 1, 'main')]);
+    final backup = _FakeAdapter('backup', prices: [_price('sjc', 2, 'backup')]);
+    final service = PriceService.forTest()
+      ..registerAdapter(main)
+      ..registerAdapter(backup)
+      ..setActiveAdapter('main');
+
+    await service.fetchCurrentPrices();
+
+    expect(_FakeAdapter.calls, ['main']);
+    expect(service.getBuyPrice('sjc'), 1);
+  });
+
+  test('nguồn chính lỗi: gộp giá từ nhiều nguồn dự phòng, loại thiếu giữ giá cũ', () async {
+    final storage = _MemoryStorage()
+      ..saved = PriceCacheSnapshot(
+        prices: [_price('doji_hcm', 50, 'old'), _price('sjc', 60, 'old')],
+        fetchedAt: DateTime(2026, 1, 1),
+      );
+    final main = _FakeAdapter('main', fail: true);
+    final sjc = _FakeAdapter('s', prices: [_price('sjc', 100, 's')]);
+    final dead = _FakeAdapter('dead', fail: true);
+    final pnj = _FakeAdapter('p',
+        prices: [_price('pnj_24k', 200, 'p'), _price('sjc', 999, 'p')]);
+    final service = PriceService.forTest(storage: storage)
+      ..registerAdapter(main)
+      ..registerAdapter(sjc)
+      ..registerAdapter(dead)
+      ..registerAdapter(pnj)
+      ..setActiveAdapter('main');
+    await service.loadCachedPrices();
+
+    final result = await service.fetchCurrentPrices();
+
+    expect(result.map((p) => p.goldTypeId).toSet(), {'sjc', 'pnj_24k'});
+    expect(service.status, PriceSourceStatus.fresh);
+    expect(service.getBuyPrice('sjc'), 100);
+    expect(service.getBuyPrice('pnj_24k'), 200);
+    expect(service.getBuyPrice('doji_hcm'), 50); // không nguồn nào có → giữ giá cũ
   });
 
   test('adapter trả list rỗng hoặc không khả dụng thì bị bỏ qua', () async {

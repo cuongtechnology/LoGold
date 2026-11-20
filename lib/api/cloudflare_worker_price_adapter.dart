@@ -11,10 +11,9 @@ import 'price_adapter.dart';
 /// Endpoint: `<workerBaseUrl>/prices` → JSON bundle
 /// `{ prices: [...], fetchedAt: ..., upstream: ... }` (xem `worker/src/index.ts`).
 ///
-/// Dùng adapter này cho **cả web + mobile** khi Worker đã deploy:
-/// - Web: thoát CORS (Worker set `Access-Control-Allow-Origin: *`).
-/// - Mobile: giảm hit trực tiếp SJC → tránh Cloudflare challenge, tiết kiệm
-///   pin/data user, và mọi user share cùng cache 5 phút.
+/// Worker gộp PNJ + BTMC + CafeF (SJC) + vang.today, cache 5 phút. App dùng
+/// adapter này làm nguồn dự phòng: bản chụp trong KV vẫn phục vụ được khi
+/// nguồn chính chập chờn, và sửa nguồn ở Worker không cần cập nhật app.
 class CloudflareWorkerPriceAdapter implements PriceAdapter {
   final String baseUrl;
   final http.Client _client;

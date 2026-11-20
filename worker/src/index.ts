@@ -2,13 +2,15 @@
  * Lo Gold Price Proxy — Cloudflare Worker.
  *
  * Endpoint chính: `GET /prices` → JSON list các loại vàng đã normalize sang
- * VND/lượng. Client Flutter (mobile + web) gọi endpoint này thay vì fetch
- * trực tiếp SJC/DOJI để:
+ * VND/lượng, gộp từ nhiều nguồn (xem `fetchFresh`): PNJ, BTMC, CafeF (giá
+ * SJC niêm yết) và vang.today. Mỗi nguồn độc lập — một nguồn chết thì các
+ * nguồn còn lại vẫn phục vụ. App dùng endpoint này làm nguồn dự phòng:
  *  1. Tránh CORS (worker set `Access-Control-Allow-Origin: *`).
- *  2. Ẩn logic scrape khỏi client — sửa scrape không cần force update app.
- *  3. Cache 5 phút trong KV — 10k user × 4 req/ngày = 40k req, nhưng upstream
- *     chỉ nhận ~288 req/ngày (cron 5 phút). Free tier CF thoải mái.
- *  4. User-Agent + retry giúp bypass Cloudflare challenge trên SJC.
+ *  2. Sửa/đổi nguồn ở đây không cần cập nhật app.
+ *  3. Cache 5 phút trong KV — upstream chỉ nhận ~288 req/ngày (cron 5 phút).
+ *
+ * KHÔNG gọi thẳng sjc.com.vn: site đó chặn bot bằng Cloudflare challenge;
+ * feed XML cũ đã bị gỡ và giavang.doji.vn đã đóng.
  *
  * Push notification (giá SJC biến động mạnh):
  *  - `POST /register-token` / `POST /unregister-token` — app đăng ký/gỡ FCM
@@ -67,7 +69,7 @@ interface PriceBundle {
 
 const CACHE_KEY = 'prices:v1';
 const CACHE_TTL_SECONDS = 300; // 5 phút
-const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36';
+const UA = 'lo-gold-proxy/1.0 (Cloudflare Worker)';
 const UPSTREAM_TIMEOUT_MS = 12_000;
 
 const TOKEN_PREFIX = 'token:';
@@ -524,162 +526,201 @@ async function getCachedOrFresh(env: Env): Promise<PriceBundle> {
   return fresh;
 }
 
-async function fetchFresh(): Promise<PriceBundle> {
-  // Thử SJC XML trước; fallback DOJI HTML.
-  try {
-    const prices = await fetchSjcXml();
-    if (prices.length > 0) {
-      return {
-        prices,
-        fetchedAt: new Date().toISOString(),
-        upstream: 'sjc_xml',
-      };
-    }
-  } catch (err) {
-    console.warn('SJC XML failed:', err);
-  }
+// Thứ tự = độ ưu tiên khi 2 nguồn cùng có 1 loại vàng (nguồn đứng trước
+// thắng): nguồn chính chủ trước, vang.today lấp các loại còn thiếu.
+const UPSTREAMS: Array<{ name: string; fetch: () => Promise<GoldPrice[]> }> = [
+  { name: 'pnj', fetch: fetchPnj },
+  { name: 'btmc', fetch: fetchBtmc },
+  { name: 'cafef', fetch: fetchCafefSjc },
+  { name: 'vang_today', fetch: fetchVangToday },
+];
 
-  const prices = await fetchDojiHtml();
+async function fetchFresh(): Promise<PriceBundle> {
+  const settled = await Promise.allSettled(UPSTREAMS.map((u) => u.fetch()));
+
+  const merged = new Map<string, GoldPrice>();
+  const succeeded: string[] = [];
+  settled.forEach((result, i) => {
+    const name = UPSTREAMS[i].name;
+    if (result.status === 'rejected') {
+      console.warn(`upstream ${name} failed:`, result.reason);
+      return;
+    }
+    if (result.value.length === 0) return;
+    succeeded.push(name);
+    for (const price of result.value) {
+      if (!merged.has(price.goldTypeId)) merged.set(price.goldTypeId, price);
+    }
+  });
+
+  if (merged.size === 0) throw new Error('Mọi nguồn giá đều lỗi');
   return {
-    prices,
+    prices: [...merged.values()],
     fetchedAt: new Date().toISOString(),
-    upstream: 'doji_html',
+    upstream: succeeded.join('+'),
   };
 }
 
-// ─── Upstream: SJC XML ────────────────────────────────────────────────────
-
-async function fetchSjcXml(): Promise<GoldPrice[]> {
-  const res = await fetchWithTimeout('https://sjc.com.vn/xml/tygiavang.xml', {
-    headers: {
-      'User-Agent': UA,
-      'Accept': 'application/xml, text/xml, */*',
-      'Accept-Language': 'vi-VN,vi;q=0.9,en;q=0.8',
-    },
-  });
-  if (!res.ok) throw new Error(`SJC XML HTTP ${res.status}`);
-
-  const body = await res.text();
-  if (body.trimStart().startsWith('<!DOCTYPE') || body.includes('Just a moment')) {
-    throw new Error('SJC XML challenge blocked');
-  }
-
-  const now = new Date().toISOString();
-  const prices = new Map<string, GoldPrice>();
-
-  // SJC XML format thay đổi theo thời gian; parse cả 2 shape:
-  //   <row buy="..." sell="..." type_name="..."/>
-  //   <Row><BuyPrice>..</BuyPrice><SellPrice>..</SellPrice><TenLoai>..</TenLoai></Row>
-  const rowAttrRegex = /<row\s+([^>]+?)\/?>/gi;
-  for (const m of body.matchAll(rowAttrRegex)) {
-    const attrs = parseAttrs(m[1]);
-    const label = attrs.type_name || attrs.TypeName || '';
-    const buy = parseNumber(attrs.buy || attrs.BuyPrice);
-    const sell = parseNumber(attrs.sell || attrs.SellPrice);
-    addPrice(prices, label, buy, sell, 'sjc_xml', now);
-  }
-
-  const rowElemRegex = /<Row>([\s\S]*?)<\/Row>/gi;
-  for (const m of body.matchAll(rowElemRegex)) {
-    const inner = m[1];
-    const label = extractTag(inner, 'TenLoai') || extractTag(inner, 'type_name') || '';
-    const buy = parseNumber(extractTag(inner, 'BuyPrice') || extractTag(inner, 'buy'));
-    const sell = parseNumber(extractTag(inner, 'SellPrice') || extractTag(inner, 'sell'));
-    addPrice(prices, label, buy, sell, 'sjc_xml', now);
-  }
-
-  return [...prices.values()];
+function makePrice(goldTypeId: string, buy: number, sell: number, source: string): GoldPrice | null {
+  if (!Number.isFinite(buy) || !Number.isFinite(sell) || buy <= 0 || sell <= 0) return null;
+  return { goldTypeId, buyPrice: buy, sellPrice: sell, source, updatedAt: new Date().toISOString() };
 }
 
-// ─── Upstream: DOJI HTML ──────────────────────────────────────────────────
-
-async function fetchDojiHtml(): Promise<GoldPrice[]> {
-  const res = await fetchWithTimeout('https://giavang.doji.vn', {
-    headers: {
-      'User-Agent': UA,
-      'Accept': 'text/html,application/xhtml+xml',
-      'Accept-Language': 'vi-VN,vi;q=0.9',
-    },
+async function fetchJson(url: string): Promise<unknown> {
+  const res = await fetchWithTimeout(url, {
+    headers: { 'User-Agent': UA, 'Accept': 'application/json' },
   });
-  if (!res.ok) throw new Error(`DOJI HTML HTTP ${res.status}`);
+  if (!res.ok) throw new Error(`${new URL(url).host} HTTP ${res.status}`);
+  return res.json();
+}
 
-  const html = await res.text();
-  const now = new Date().toISOString();
-  const prices = new Map<string, GoldPrice>();
+// ─── Upstream: PNJ (chính chủ) ────────────────────────────────────────────
+// `{data: [{masp, tensp, giamua, giaban}]}`, đơn vị nghìn đồng/chỉ → ×10.000.
+// zone=11 là Hà Nội.
 
-  // Bảng Hà Nội format ngắn gọn: <td class="label">NAME</td><td>BUY</td><td>SELL</td>
-  // Giá đơn vị nghìn/chỉ → ×10000 = VND/lượng.
-  const rowRegex =
-    /<td class="label">\s*(.*?)\s*<\/td>\s*<td>\s*([\d,.]+)\s*<\/td>\s*<td>\s*([\d,.]+)\s*<\/td>/gis;
+const PNJ_CODE_TO_GOLD_TYPE: Record<string, string> = {
+  SJC: 'pnj_hanoi', // vàng miếng SJC bán tại PNJ
+  N24K: 'pnj_24k',  // nhẫn trơn PNJ 999.9
+};
 
-  for (const m of html.matchAll(rowRegex)) {
-    const label = m[1];
-    const buyThousandPerChi = parseNumber(m[2]);
-    const sellThousandPerChi = parseNumber(m[3]);
-    if (buyThousandPerChi == null || sellThousandPerChi == null) continue;
+async function fetchPnj(): Promise<GoldPrice[]> {
+  const body = (await fetchJson(
+    'https://edge-api.pnj.io/ecom-frontend/v1/get-gold-price?zone=11',
+  )) as { data?: Array<{ masp?: string; giamua?: unknown; giaban?: unknown }> };
 
-    const buy = buyThousandPerChi * 10_000;
-    const sell = sellThousandPerChi * 10_000;
-    addPrice(prices, label, buy, sell, 'doji_html', now);
+  const prices: GoldPrice[] = [];
+  for (const row of body.data ?? []) {
+    const goldTypeId = PNJ_CODE_TO_GOLD_TYPE[row.masp ?? ''];
+    if (!goldTypeId) continue;
+    // Dòng thiếu giá có giaban = '' → typeof !== 'number' → bỏ.
+    if (typeof row.giamua !== 'number' || typeof row.giaban !== 'number') continue;
+    const price = makePrice(goldTypeId, row.giamua * 10_000, row.giaban * 10_000, 'pnj');
+    if (price) prices.push(price);
   }
+  return prices;
+}
 
-  if (prices.size === 0) throw new Error('DOJI parse yielded 0 rows');
-  return [...prices.values()];
+// ─── Upstream: BTMC (Bảo Tín Minh Châu, chính chủ) ────────────────────────
+// Response ~870 KB (gồm cả lịch sử trong ngày, mới nhất trước; bạc đứng đầu,
+// vàng nằm quanh byte 120.000). Chỉ đọc 256 KB đầu rồi dò 2 dòng cần bằng
+// regex, không JSON.parse cả khối — tránh vượt giới hạn CPU của Worker.
+// Đơn vị VND/chỉ → ×10.
+
+const BTMC_READ_LIMIT_BYTES = 256 * 1024;
+const BTMC_NAME_TO_GOLD_TYPE: Array<[string, string]> = [
+  ['VÀNG MIẾNG SJC', 'bao_tin_sjc'],
+  ['NHẪN TRÒN TRƠN', 'gold_9999'], // app hiển thị là "Bảo Tín 9999"
+];
+
+async function fetchBtmc(): Promise<GoldPrice[]> {
+  const res = await fetchWithTimeout(
+    'https://api.btmc.vn/api/BTMCAPI/getpricebtmc?key=3kd8ub1llcg9t45hnoh8hmn7t5kc2v',
+    { headers: { 'User-Agent': UA, 'Accept': 'application/json' } },
+  );
+  if (!res.ok) throw new Error(`BTMC HTTP ${res.status}`);
+
+  const head = await readHead(res, BTMC_READ_LIMIT_BYTES);
+  const prices: GoldPrice[] = [];
+  for (const [name, goldTypeId] of BTMC_NAME_TO_GOLD_TYPE) {
+    // Dòng: {"@row":"600","@n_600":"VÀNG MIẾNG SJC (...)",...,"@pb_600":"12830000","@ps_600":"13420000",...}
+    const re = new RegExp(
+      `"@n_(\\d+)":"${name}[^"]*"[^{}]*?"@pb_\\1":"(\\d+)","@ps_\\1":"(\\d+)"`,
+    );
+    const m = head.match(re);
+    if (!m) continue;
+    const price = makePrice(goldTypeId, Number(m[2]) * 10, Number(m[3]) * 10, 'btmc');
+    if (price) prices.push(price);
+  }
+  return prices;
+}
+
+/** Đọc tối đa `limit` byte đầu của body rồi huỷ phần còn lại. */
+async function readHead(res: Response, limit: number): Promise<string> {
+  if (!res.body) return '';
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let text = '';
+  let read = 0;
+  while (read < limit) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    read += value.byteLength;
+    text += decoder.decode(value, { stream: true });
+  }
+  await reader.cancel().catch(() => undefined);
+  return text;
+}
+
+// ─── Upstream: CafeF (giá vàng miếng SJC niêm yết) ────────────────────────
+// `{Data: {goldPriceWorldHistories: [{name: "SJC", buyPrice, sellPrice,
+// createdAt}]}}`, mỗi ngày 1 dòng, mới nhất trước; đơn vị triệu đồng/lượng.
+// Giá `sjc` này cũng là giá dùng để xét bắn push.
+
+const CAFEF_MAX_AGE_MS = 4 * 24 * 60 * 60 * 1000;
+
+async function fetchCafefSjc(): Promise<GoldPrice[]> {
+  const body = (await fetchJson(
+    'https://cafef.vn/du-lieu/Ajax/ajaxgoldpricehistory.ashx?index=1m',
+  )) as {
+    Data?: {
+      goldPriceWorldHistories?: Array<{
+        name?: string; buyPrice?: unknown; sellPrice?: unknown; createdAt?: string;
+      }>;
+    };
+  };
+
+  for (const row of body.Data?.goldPriceWorldHistories ?? []) {
+    if (row.name !== 'SJC') continue;
+    if (typeof row.buyPrice !== 'number' || typeof row.sellPrice !== 'number') continue;
+    const createdAt = Date.parse(row.createdAt ?? '');
+    if (!Number.isFinite(createdAt) || Date.now() - createdAt > CAFEF_MAX_AGE_MS) break;
+    const price = makePrice(
+      'sjc',
+      Math.round(row.buyPrice * 1_000_000),
+      Math.round(row.sellPrice * 1_000_000),
+      'cafef',
+    );
+    return price ? [price] : [];
+  }
+  return [];
+}
+
+// ─── Upstream: vang.today (tổng hợp, đủ mọi loại app track) ───────────────
+// `{success, prices: {CODE: {buy, sell}}}`, sẵn VND/lượng. Bảng mã phải khớp
+// `lib/api/vang_today_price_adapter.dart`.
+
+const VANG_TODAY_CODE_TO_GOLD_TYPE: Record<string, string> = {
+  SJL1L10: 'sjc',
+  SJ9999: 'ring_9999',
+  BT9999NTT: 'gold_9999',
+  DOJINHTV: 'jewelry',
+  VIETTINMSJC: 'viettin_sjc',
+  PQHNVM: 'pnj_hanoi',
+  PQHN24NTT: 'pnj_24k',
+  BTSJC: 'bao_tin_sjc',
+  DOHNL: 'doji_hanoi',
+  DOHCML: 'doji_hcm',
+  VNGSJC: 'vn_gold_sjc',
+};
+
+async function fetchVangToday(): Promise<GoldPrice[]> {
+  const body = (await fetchJson('https://www.vang.today/api/prices')) as {
+    success?: boolean;
+    prices?: Record<string, { buy?: unknown; sell?: unknown }>;
+  };
+  if (body.success !== true) throw new Error('vang.today success=false');
+
+  const prices: GoldPrice[] = [];
+  for (const [code, goldTypeId] of Object.entries(VANG_TODAY_CODE_TO_GOLD_TYPE)) {
+    const entry = body.prices?.[code];
+    if (!entry || typeof entry.buy !== 'number' || typeof entry.sell !== 'number') continue;
+    const price = makePrice(goldTypeId, entry.buy, entry.sell, 'vang_today');
+    if (price) prices.push(price);
+  }
+  return prices;
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────
-
-function addPrice(
-  bag: Map<string, GoldPrice>,
-  label: string,
-  buy: number | null,
-  sell: number | null,
-  source: string,
-  now: string,
-): void {
-  if (!label || buy == null || sell == null) return;
-  const goldTypeId = mapLabelToGoldTypeId(label);
-  if (!goldTypeId) return;
-  // First-write wins — mỗi loại chỉ giữ giá đầu tiên gặp trong feed.
-  if (!bag.has(goldTypeId)) {
-    bag.set(goldTypeId, { goldTypeId, buyPrice: buy, sellPrice: sell, source, updatedAt: now });
-  }
-}
-
-function mapLabelToGoldTypeId(label: string): string | null {
-  const lower = label.toLowerCase();
-  if (lower.includes('sjc')) return 'sjc';
-  if (lower.includes('nhẫn') || lower.includes('nhan')) return 'ring_9999';
-  if (lower.includes('nguyên liệu') || lower.includes('nguyen lieu')
-      || lower.includes('avpl') || lower.includes('kim tt')) return 'gold_9999';
-  if (lower.includes('nữ trang') || lower.includes('nu trang') || lower.includes('trang sức')) {
-    return 'jewelry';
-  }
-  return null;
-}
-
-function parseAttrs(raw: string): Record<string, string> {
-  const attrs: Record<string, string> = {};
-  const attrRegex = /(\w+)\s*=\s*"([^"]*)"/g;
-  for (const m of raw.matchAll(attrRegex)) {
-    attrs[m[1]] = m[2];
-  }
-  return attrs;
-}
-
-function extractTag(xml: string, name: string): string | null {
-  const re = new RegExp(`<${name}[^>]*>([\\s\\S]*?)</${name}>`, 'i');
-  const m = xml.match(re);
-  return m ? m[1].trim() : null;
-}
-
-function parseNumber(raw: string | null | undefined): number | null {
-  if (raw == null) return null;
-  const cleaned = raw.replace(/[,.\s]/g, '');
-  if (!cleaned) return null;
-  const n = Number(cleaned);
-  return Number.isFinite(n) ? n : null;
-}
 
 async function fetchWithTimeout(url: string, init: RequestInit): Promise<Response> {
   const ctrl = new AbortController();
