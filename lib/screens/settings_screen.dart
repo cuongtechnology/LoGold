@@ -654,20 +654,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ),
           content: const SingleChildScrollView(
             child: Text(
-              'Ứng dụng "Lỗ" - Lỗ nhiều chưa? - là công cụ theo dõi danh mục vàng cá nhân.
-
-'
-              '• Thông tin về giá vàng chỉ mang tính tham khảo
-'
-              '• Không phải là khuyến nghị mua/bán vàng
-'
-              '• Người dùng tự chịu trách nhiệm về quyết định đầu tư
-'
-              '• Giá vàng thực tế có thể chênh lệch tùy tiệm vàng
-'
-              '• Dữ liệu có thể không cập nhật theo thời gian thực
-
-'
+              'Ứng dụng "Lỗ" - Lỗ nhiều chưa? - là công cụ theo dõi danh mục vàng cá nhân.\n\n'
+              '• Thông tin về giá vàng chỉ mang tính tham khảo\n'
+              '• Không phải là khuyến nghị mua/bán vàng\n'
+              '• Người dùng tự chịu trách nhiệm về quyết định đầu tư\n'
+              '• Giá vàng thực tế có thể chênh lệch tùy tiệm vàng\n'
+              '• Dữ liệu có thể không cập nhật theo thời gian thực\n\n'
               'Hãy luôn tham khảo giá từ tiệm vàng hoặc nguồn uy tín '
               'trước khi thực hiện giao dịch.',
               style: TextStyle(color: AppColors.textSecondary, height: 1.5),
@@ -704,27 +696,19 @@ class _SettingsScreenState extends State<SettingsScreen> {
               mainAxisSize: MainAxisSize.min,
               children: [
                 const Text(
-                  'Ứng dụng "Lỗ nhiều chưa?" tôn trọng quyền riêng tư của bạn:
-
-'
+                  'Ứng dụng "Lỗ nhiều chưa?" tôn trọng quyền riêng tư của bạn:\n\n'
                   '• Danh mục vàng, giá mua, ghi chú, mã PIN (nếu bật) chỉ lưu '
                   'cục bộ trên thiết bị — không tài khoản, không đồng bộ lên '
-                  'server nào của chúng tôi
-'
+                  'server nào của chúng tôi\n'
                   '• App hiển thị quảng cáo qua Google AdMob — AdMob có thể '
                   'thu thập Advertising ID và dữ liệu thiết bị để cá nhân hoá '
-                  'quảng cáo
-'
+                  'quảng cáo\n'
                   '• App gửi thông báo đẩy qua Firebase Cloud Messaging — cần '
                   'gửi 1 mã định danh thiết bị (không phải thông tin cá nhân) '
-                  'để biết gửi thông báo tới đúng máy
-'
+                  'để biết gửi thông báo tới đúng máy\n'
                   '• Giá vàng lấy từ API công khai, không gắn với thông tin cá '
-                  'nhân nào
-'
-                  '• Gỡ app khỏi máy sẽ xoá toàn bộ dữ liệu cục bộ ngay lập tức
-
-'
+                  'nhân nào\n'
+                  '• Gỡ app khỏi máy sẽ xoá toàn bộ dữ liệu cục bộ ngay lập tức\n\n'
                   'Chi tiết đầy đủ tại:',
                   style: TextStyle(color: AppColors.textSecondary, height: 1.5),
                 ),

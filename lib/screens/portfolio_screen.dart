@@ -267,7 +267,7 @@ class _PortfolioScreenState extends State<PortfolioScreen> {
                               color: AppColors.neutral.withValues(alpha: 0.2),
                               borderRadius: BorderRadius.circular(6),
                             ),
-                            child: const Text(
+                            child: Text(
                               holding.sellDate != null
                                   ? 'Đã bán ${Formatters.formatDate(holding.sellDate!)}'
                                   : 'Đã bán',
