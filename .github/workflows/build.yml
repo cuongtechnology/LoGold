@@ -319,7 +319,7 @@ jobs:
         run: keychain use-login || true
 
   # Ảnh chụp màn hình cho App Store: build bản demo (LO_DEMO) cho Simulator
-  # iPhone Pro Max (6.9"), app tự nạp dữ liệu mẫu và tự chuyển tab 10 giây một
+  # iPhone Pro (6.3", 1206x2622 — cỡ App Store Connect yêu cầu), app tự nạp dữ liệu mẫu và tự chuyển tab 10 giây một
   # lần; cứ 2 giây chụp 1 ảnh rồi chọn ảnh đẹp từ artifact.
   ios-screenshots:
     name: iOS screenshots
@@ -351,7 +351,8 @@ jobs:
           import json, sys
           devices = json.load(sys.stdin)['devices']
           found = [d for runtime in sorted(devices) if 'iOS' in runtime
-                   for d in devices[runtime] if 'Pro Max' in d['name']]
+                   for d in devices[runtime]
+                   if d['name'].startswith('iPhone') and d['name'].endswith(' Pro')]
           print(found[-1]['udid'])")
           echo "Simulator: $UDID"
           xcrun simctl boot "$UDID"
