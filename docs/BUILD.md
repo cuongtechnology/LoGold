@@ -12,7 +12,7 @@ Tài liệu mô tả cách chạy test, build Android, iOS và Web cho app **L�
 | Gradle wrapper | 8.12 | `android/gradle/wrapper/gradle-wrapper.properties` |
 | Android Gradle Plugin | 8.9.1 | `android/settings.gradle.kts` |
 | Kotlin | 2.3.0 (bắt buộc cho `google_mobile_ads`) | `android/settings.gradle.kts` |
-| iOS | Tối thiểu 15.0; Swift Package Manager + CocoaPods (`flutter build` tự xử lý) | `ios/Podfile`, `project.pbxproj` |
+| iOS | Tối thiểu 15.0; plugin dùng Swift Package Manager, **không** dùng CocoaPods | `ios/Runner.xcodeproj/project.pbxproj` |
 
 > ⚠️ CI GitHub Actions dùng Flutter **3.47.5**. Flutter cũ hơn 3.44 (ví dụ 3.35.4, vẫn đang ghim ở `web-android-workflow` của `codemagic.yaml`) **không** chạy được `pub get` với lock hiện tại.
 >
@@ -127,7 +127,7 @@ Job `build-ios` chạy khi push tag `v*` hoặc khi chạy tay:
 
 Việc ký app dùng [codemagic-cli-tools](https://github.com/codemagic-ci-cd/cli-tools) (công cụ mã nguồn mở, chạy được ngoài Codemagic): tự tạo chứng chỉ Apple Distribution và provisioning profile qua App Store Connect API, không cần Mac hay Xcode trên máy mình.
 
-Cấu hình iOS trong project: bundle ID `vn.lo.app`, iOS tối thiểu **15.0** (Firebase 12 yêu cầu, khai báo ở `ios/Podfile` và `project.pbxproj`), `ITSAppUsesNonExemptEncryption = false` để App Store Connect không hỏi Export Compliance mỗi build.
+Cấu hình iOS trong project: bundle ID `vn.lo.app`, iOS tối thiểu **15.0** (Firebase 12 yêu cầu, khai báo ở `project.pbxproj`). Mọi plugin đều là Swift Package nên project **không có `Podfile`**; đừng thêm lại, vì Xcode sẽ báo `The sandbox is not in sync with the Podfile.lock`, `ITSAppUsesNonExemptEncryption = false` để App Store Connect không hỏi Export Compliance mỗi build.
 
 ### 7.1. Thiết lập một lần
 
@@ -187,7 +187,8 @@ Repo đang để **public** nên phút chạy Actions miễn phí, kể cả run
 | `No matching profiles found` / `Cannot save Signing Certificates without certificate private key` | Thiếu hoặc sai `CERTIFICATE_PRIVATE_KEY` (bước 3–4) |
 | `There is a problem with the request entity ... maximum number of certificates` | Tài khoản đã có 3 chứng chỉ Distribution. Thu hồi bớt một cái ở developer.apple.com → Certificates |
 | `Unable to find a bundle identifier vn.lo.app` | Chưa tạo App ID (bước 1) |
-| `required a higher minimum deployment target` | Một pod yêu cầu iOS cao hơn 15.0. Nâng `platform :ios` trong `ios/Podfile` và `IPHONEOS_DEPLOYMENT_TARGET` trong `project.pbxproj` |
+| `required a higher minimum deployment target` | Một package yêu cầu iOS cao hơn 15.0. Nâng `IPHONEOS_DEPLOYMENT_TARGET` trong `project.pbxproj` |
+| `The sandbox is not in sync with the Podfile.lock` | Có `ios/Podfile` trong khi mọi plugin đã là Swift Package. Xóa `ios/Podfile` |
 | Upload báo `bundle version must be higher` | Build number trùng với một build đã upload. Chạy lại workflow để có `run_number` lớn hơn |
 | Job báo "The job was not started because your account is locked due to a billing issue" | Tài khoản GitHub bị khóa vì lỗi thanh toán. Vào github.com → Settings → **Billing and licensing**, cập nhật thẻ hoặc thanh toán khoản nợ |
 | `Thiếu secret App Store Connect — chỉ build IPA chưa ký` | Chưa tạo đủ 4 secret ở bước 4, hoặc chạy từ pull request của fork (GitHub không truyền secret vào đó) |
