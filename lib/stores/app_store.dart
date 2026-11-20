@@ -139,6 +139,8 @@ class AppStore extends ChangeNotifier {
   String historicalPriceStatusMessageFor(String goldTypeId) =>
       _historicalPriceService.statusMessageFor(goldTypeId);
   bool get isPushNotificationReady => _pushNotificationService.isReady;
+  bool get isPushNotificationConfigured =>
+      _pushNotificationService.isConfigured;
   String get pushNotificationStatusMessage =>
       _pushNotificationService.statusMessage;
 

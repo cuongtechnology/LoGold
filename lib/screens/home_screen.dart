@@ -42,9 +42,7 @@ class _HomeScreenState extends State<HomeScreen> {
           child: CustomScrollView(
             slivers: [
               // Header
-              SliverToBoxAdapter(
-                child: _buildHeader(store),
-              ),
+              SliverToBoxAdapter(child: _buildHeader(store)),
               // Content
               if (store.isLoading && summary == null)
                 const SliverFillRemaining(
@@ -60,13 +58,17 @@ class _HomeScreenState extends State<HomeScreen> {
                 SliverToBoxAdapter(child: _buildQuickActions()),
                 const SliverToBoxAdapter(child: SizedBox(height: 80)),
               ] else ...[
-                SliverToBoxAdapter(child: _buildPortfolioCard(summary, privacyMode)),
+                SliverToBoxAdapter(
+                  child: _buildPortfolioCard(summary, privacyMode),
+                ),
                 SliverToBoxAdapter(child: _buildStatusSection(summary)),
                 SliverToBoxAdapter(child: _buildMemeSection(summary)),
                 // Xen giữa 2 section thuần hiển thị (không nút bấm) để tránh
                 // click nhầm — theo chính sách khoảng cách ad của AdMob/Play.
                 const SliverToBoxAdapter(child: BannerAdWidget()),
-                SliverToBoxAdapter(child: _buildHoldingsPreview(store, summary)),
+                SliverToBoxAdapter(
+                  child: _buildHoldingsPreview(store, summary),
+                ),
                 SliverToBoxAdapter(child: _buildQuickActions()),
                 const SliverToBoxAdapter(child: BannerAdWidget()),
                 const SliverToBoxAdapter(child: SizedBox(height: 80)),
@@ -87,64 +89,69 @@ class _HomeScreenState extends State<HomeScreen> {
       padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
       child: Row(
         children: [
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(8),
-                    child: Image.asset(
-                      'assets/logo.png',
-                      height: 32,
-                      width: 32,
-                      fit: BoxFit.cover,
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                    decoration: BoxDecoration(
-                      color: AppColors.bgCard,
+          // Expanded + chữ 1 dòng có ellipsis: màn hình hẹp (iPhone) không
+          // còn tràn ngang đè lên 2 nút bên phải.
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    ClipRRect(
                       borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: Text(
-                      store.priceStatusLabel,
-                      style: TextStyle(
-                        color: store.priceStatus == PriceSourceStatus.fresh
-                            ? AppColors.textHint
-                            : AppColors.warning,
-                        fontSize: 10,
+                      child: Image.asset(
+                        'assets/logo.png',
+                        height: 32,
+                        width: 32,
+                        fit: BoxFit.cover,
                       ),
                     ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 4),
-              Row(
-                children: [
-                  Text(
-                    AppConstants.slogan,
-                    style: const TextStyle(
-                      color: AppColors.gold,
-                      fontSize: 13,
-                      fontWeight: FontWeight.w600,
-                      fontStyle: FontStyle.italic,
+                    const SizedBox(width: 8),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 2,
+                      ),
+                      decoration: BoxDecoration(
+                        color: AppColors.bgCard,
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Text(
+                        store.priceStatusLabel,
+                        style: TextStyle(
+                          color: store.priceStatus == PriceSourceStatus.fresh
+                              ? AppColors.textHint
+                              : AppColors.warning,
+                          fontSize: 10,
+                        ),
+                      ),
                     ),
+                  ],
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  AppConstants.slogan,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: AppColors.gold,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                    fontStyle: FontStyle.italic,
                   ),
-                  const SizedBox(width: 8),
-                  Text(
-                    _getGreeting(),
-                    style: const TextStyle(
-                      color: AppColors.textSecondary,
-                      fontSize: 13,
-                    ),
+                ),
+                Text(
+                  _getGreeting(),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: AppColors.textSecondary,
+                    fontSize: 13,
                   ),
-                ],
-              ),
-            ],
+                ),
+              ],
+            ),
           ),
-          const Spacer(),
           // Privacy toggle
           IconButton(
             onPressed: store.togglePrivacyMode,
@@ -210,7 +217,10 @@ class _HomeScreenState extends State<HomeScreen> {
                     children: [
                       const Text(
                         'Lãi / Lỗ',
-                        style: TextStyle(color: AppColors.textSecondary, fontSize: 13),
+                        style: TextStyle(
+                          color: AppColors.textSecondary,
+                          fontSize: 13,
+                        ),
                       ),
                       const SizedBox(height: 4),
                       PLDisplay(
@@ -228,7 +238,10 @@ class _HomeScreenState extends State<HomeScreen> {
                     children: [
                       const Text(
                         '% Lãi / Lỗ',
-                        style: TextStyle(color: AppColors.textSecondary, fontSize: 13),
+                        style: TextStyle(
+                          color: AppColors.textSecondary,
+                          fontSize: 13,
+                        ),
                       ),
                       const SizedBox(height: 4),
                       PLDisplay(
@@ -255,11 +268,15 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
               _detailItem(
                 'Tổng vàng',
-                privacyMode ? '••••' : '${summary.totalQuantityInLuong.toStringAsFixed(2)} lượng',
+                privacyMode
+                    ? '••••'
+                    : '${summary.totalQuantityInLuong.toStringAsFixed(2)} lượng',
               ),
               _detailItem(
                 'Giá hòa vốn',
-                privacyMode ? '••••' : _formatVndCompact(summary.breakEvenPricePerLuong),
+                privacyMode
+                    ? '••••'
+                    : _formatVndCompact(summary.breakEvenPricePerLuong),
               ),
             ],
           ),
@@ -396,7 +413,11 @@ class _HomeScreenState extends State<HomeScreen> {
               color: AppColors.gold.withValues(alpha: 0.15),
               borderRadius: BorderRadius.circular(10),
             ),
-            child: const Icon(Icons.monetization_on, color: AppColors.gold, size: 22),
+            child: const Icon(
+              Icons.monetization_on,
+              color: AppColors.gold,
+              size: 22,
+            ),
           ),
           const SizedBox(width: 12),
           Expanded(
@@ -440,7 +461,9 @@ class _HomeScreenState extends State<HomeScreen> {
                   ),
                 ),
                 Text(
-                  privacyMode ? '••' : '${result.profitLossPercent >= 0 ? '+' : ''}${result.profitLossPercent.toStringAsFixed(2)}%',
+                  privacyMode
+                      ? '••'
+                      : '${result.profitLossPercent >= 0 ? '+' : ''}${result.profitLossPercent.toStringAsFixed(2)}%',
                   style: TextStyle(
                     color: privacyMode ? AppColors.textHint : color,
                     fontSize: 12,
@@ -449,10 +472,7 @@ class _HomeScreenState extends State<HomeScreen> {
               ],
             )
           else
-            const Text(
-              '...',
-              style: TextStyle(color: AppColors.textHint),
-            ),
+            const Text('...', style: TextStyle(color: AppColors.textHint)),
         ],
       ),
     );
@@ -460,25 +480,59 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Widget _buildQuickActions() {
     void openUtility(int tab) => Navigator.push(
-          context,
-          MaterialPageRoute(builder: (_) => UtilitiesScreen(initialTab: tab)),
-        );
-    void open(Widget screen) => Navigator.push(
-          context,
-          MaterialPageRoute(builder: (_) => screen),
-        );
+      context,
+      MaterialPageRoute(builder: (_) => UtilitiesScreen(initialTab: tab)),
+    );
+    void open(Widget screen) =>
+        Navigator.push(context, MaterialPageRoute(builder: (_) => screen));
 
     final actions = <_QuickAction>[
-      _QuickAction('🧮', 'Đổi đơn vị', () => openUtility(UtilityTab.unitConverter)),
-      _QuickAction('💰', 'Mua/Bán nhanh', () => openUtility(UtilityTab.buySell)),
-      _QuickAction('⚖️', 'Giá hòa vốn', () => openUtility(UtilityTab.breakeven)),
-      _QuickAction('🎯', 'Giá chốt lời', () => openUtility(UtilityTab.targetProfit)),
-      _QuickAction('📊', 'Giá bình quân', () => openUtility(UtilityTab.averageCost)),
-      _QuickAction('🛒', 'Mua được bao nhiêu', () => openUtility(UtilityTab.budget)),
-      _QuickAction('🏦', 'Vàng vs Tiết kiệm', () => openUtility(UtilityTab.savings)),
-      _QuickAction('↔️', 'Chênh lệch mua bán', () => openUtility(UtilityTab.spread)),
+      _QuickAction(
+        '🧮',
+        'Đổi đơn vị',
+        () => openUtility(UtilityTab.unitConverter),
+      ),
+      _QuickAction(
+        '💰',
+        'Mua/Bán nhanh',
+        () => openUtility(UtilityTab.buySell),
+      ),
+      _QuickAction(
+        '⚖️',
+        'Giá hòa vốn',
+        () => openUtility(UtilityTab.breakeven),
+      ),
+      _QuickAction(
+        '🎯',
+        'Giá chốt lời',
+        () => openUtility(UtilityTab.targetProfit),
+      ),
+      _QuickAction(
+        '📊',
+        'Giá bình quân',
+        () => openUtility(UtilityTab.averageCost),
+      ),
+      _QuickAction(
+        '🛒',
+        'Mua được bao nhiêu',
+        () => openUtility(UtilityTab.budget),
+      ),
+      _QuickAction(
+        '🏦',
+        'Vàng vs Tiết kiệm',
+        () => openUtility(UtilityTab.savings),
+      ),
+      _QuickAction(
+        '↔️',
+        'Chênh lệch mua bán',
+        () => openUtility(UtilityTab.spread),
+      ),
       _QuickAction('📈', 'Biểu đồ', () => open(const ChartsScreen())),
-      _QuickAction('📜', 'So sánh lịch sử', () => open(const HistoricalComparisonScreen())),
+      _QuickAction(
+        '📜',
+        'So sánh lịch sử',
+        () => open(const HistoricalComparisonScreen()),
+      ),
       _QuickAction('🔔', 'Cảnh báo giá', () => open(const PriceAlertScreen())),
       _QuickAction('🏆', 'Top Lỗ', () => widget.onNavigateToTab?.call(3)),
     ];

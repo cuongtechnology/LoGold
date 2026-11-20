@@ -84,12 +84,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   MaterialPageRoute(builder: (_) => const PriceAlertScreen()),
                 ),
               ),
-              _buildInfoTile(
-                icon: Icons.campaign_outlined,
-                title: 'Thông báo đẩy',
-                subtitle: store.pushNotificationStatusMessage,
-                onTap: () => _showPushInfoDialog(context, store),
-              ),
+              if (store.isPushNotificationConfigured)
+                _buildInfoTile(
+                  icon: Icons.campaign_outlined,
+                  title: 'Thông báo đẩy',
+                  subtitle: store.pushNotificationStatusMessage,
+                  onTap: () => _showPushInfoDialog(context, store),
+                ),
               const SizedBox(height: 16),
 
               _buildSectionTitle('Dữ liệu'),

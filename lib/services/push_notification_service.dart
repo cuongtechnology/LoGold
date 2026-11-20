@@ -34,7 +34,12 @@ class PushNotificationService {
   PushNotificationService._();
 
   bool _isReady = false;
+  bool _isConfigured = false;
   String _statusMessage = 'Chưa khởi tạo';
+
+  /// `false` khi bản build không kèm cấu hình Firebase (vd: iOS chưa có
+  /// GoogleService-Info.plist) — UI ẩn hẳn mục thông báo đẩy.
+  bool get isConfigured => _isConfigured;
 
   /// `true` nếu Firebase init thành công và đã đăng ký nhận push.
   bool get isReady => _isReady;
@@ -50,7 +55,7 @@ class PushNotificationService {
     try {
       await Firebase.initializeApp();
     } catch (e) {
-      _statusMessage = 'Chưa cấu hình (thiếu Firebase project)';
+      _statusMessage = 'Chưa hỗ trợ trên phiên bản này';
       if (kDebugMode) {
         debugPrint(
           'PushNotificationService: chưa cấu hình Firebase, bỏ qua ($e)',
@@ -58,6 +63,7 @@ class PushNotificationService {
       }
       return;
     }
+    _isConfigured = true;
 
     await LocalNotificationService.instance.init();
     FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
