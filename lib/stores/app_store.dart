@@ -15,6 +15,8 @@ import '../services/profit_loss_calculator.dart';
 import '../services/push_notification_service.dart';
 import '../services/review_service.dart';
 import '../services/storage_service.dart';
+import '../services/biometric_service.dart';
+import '../utils/pin_security.dart';
 
 /// AppStore - Central state management using Provider ChangeNotifier.
 /// Manages all app state: holdings, prices, alerts, settings.
@@ -23,7 +25,14 @@ class AppStore extends ChangeNotifier {
   static const _kOnboarded = 'onboarded';
   static const _kPrivacyMode = 'privacyMode';
   static const _kPinEnabled = 'pinEnabled';
-  static const _kPin = 'pin';
+  // `pin` (plaintext) chỉ còn là key legacy — đọc để migrate rồi xoá.
+  static const _kLegacyPin = 'pin';
+  static const _kPinSalt = 'pinSalt';
+  static const _kPinHash = 'pinHash';
+  static const _kPinIterations = 'pinIterations';
+  static const _kPinFailCount = 'pinFailCount';
+  static const _kPinBlockedUntil = 'pinBlockedUntil'; // epoch ms
+  static const _kBiometricEnabled = 'biometricEnabled';
 
   // Services
   final _portfolio = PortfolioService.instance;
@@ -32,12 +41,17 @@ class AppStore extends ChangeNotifier {
   final _historicalPriceService = HistoricalPriceService.instance;
   final _pushNotificationService = PushNotificationService.instance;
   final _reviewService = ReviewService.instance;
+  final _biometric = BiometricService.instance;
 
   // State
   bool _isOnboarded = false;
   bool _privacyMode = false; // hide actual amounts
   bool _pinEnabled = false;
-  String _pin = '';
+  PinCredential? _pinCredential;
+  int _pinFailCount = 0;
+  int? _pinBlockedUntilMs;
+  bool _biometricEnabled = false;
+  bool _biometricAvailable = false;
   bool _isLoading = false;
   String _loadingMessage = '';
 
@@ -51,6 +65,15 @@ class AppStore extends ChangeNotifier {
   bool get isOnboarded => _isOnboarded;
   bool get privacyMode => _privacyMode;
   bool get pinEnabled => _pinEnabled;
+  bool get biometricEnabled => _pinEnabled && _biometricEnabled;
+  bool get biometricAvailable => _biometricAvailable;
+
+  /// Thời gian còn bị khoá do nhập sai PIN nhiều lần (zero nếu không bị khoá).
+  Duration get pinBlockRemaining =>
+      PinLockout.remaining(_pinBlockedUntilMs, DateTime.now());
+
+  /// Hộp thoại sinh trắc đang hiện — `main.dart` dùng để không tự khoá app.
+  bool get isBiometricPromptActive => _biometric.isPromptActive;
   bool get isLoading => _isLoading;
   String get loadingMessage => _loadingMessage;
   List<UserHolding> get holdings => _holdings;
@@ -85,6 +108,7 @@ class AppStore extends ChangeNotifier {
     _setLoading(true, 'Đang tải dữ liệu...');
 
     _loadSettings();
+    unawaited(refreshBiometricAvailability());
 
     await _portfolio.init();
     await _notificationService.init();
@@ -137,7 +161,84 @@ class AppStore extends ChangeNotifier {
     _isOnboarded = StorageService.getSetting<bool>(_kOnboarded) ?? false;
     _privacyMode = StorageService.getSetting<bool>(_kPrivacyMode) ?? false;
     _pinEnabled = StorageService.getSetting<bool>(_kPinEnabled) ?? false;
-    _pin = StorageService.getSetting<String>(_kPin) ?? '';
+    _biometricEnabled =
+        StorageService.getSetting<bool>(_kBiometricEnabled) ?? false;
+    _pinFailCount = StorageService.getSetting<int>(_kPinFailCount) ?? 0;
+    _pinBlockedUntilMs = StorageService.getSetting<int>(_kPinBlockedUntil);
+
+    final salt = StorageService.getSetting<String>(_kPinSalt);
+    final hash = StorageService.getSetting<String>(_kPinHash);
+    if (salt != null && hash != null) {
+      _pinCredential = PinCredential(
+        salt: salt,
+        hash: hash,
+        iterations: StorageService.getSetting<int>(_kPinIterations) ??
+            PinCredential.defaultIterations,
+      );
+    }
+    // Migrate PIN plaintext của bản cũ: băm rồi xoá key cũ. Nếu đã có hash
+    // (vd: app bị tắt giữa chừng lần trước) thì chỉ cần xoá key cũ.
+    final legacy = StorageService.getSetting<String>(_kLegacyPin);
+    if (legacy != null) {
+      if (_pinCredential == null && _pinEnabled) {
+        _pinCredential = PinCredential.migrateLegacy(legacy);
+      }
+      unawaited(_persistMigratedPin());
+    }
+    // Bật PIN mà không còn credential nào (dữ liệu hỏng) → không để user
+    // bị khoá vĩnh viễn ngoài app; tắt khoá.
+    if (_pinEnabled && _pinCredential == null) _pinEnabled = false;
+  }
+
+  Future<void> _persistMigratedPin() async {
+    final c = _pinCredential;
+    if (c != null) await _savePinCredential(c);
+    await StorageService.putSetting(_kLegacyPin, null);
+  }
+
+  Future<void> _savePinCredential(PinCredential c) async {
+    await StorageService.putSetting(_kPinSalt, c.salt);
+    await StorageService.putSetting(_kPinHash, c.hash);
+    await StorageService.putSetting(_kPinIterations, c.iterations);
+  }
+
+  Future<void> _resetPinAttempts() async {
+    if (_pinFailCount == 0 && _pinBlockedUntilMs == null) return;
+    _pinFailCount = 0;
+    _pinBlockedUntilMs = null;
+    await StorageService.putSetting(_kPinFailCount, null);
+    await StorageService.putSetting(_kPinBlockedUntil, null);
+  }
+
+  /// Kiểm tra lại thiết bị có dùng được sinh trắc học không.
+  Future<bool> refreshBiometricAvailability() async {
+    _biometricAvailable = await _biometric.isAvailable();
+    notifyListeners();
+    return _biometricAvailable;
+  }
+
+  /// Bật/tắt mở khoá bằng sinh trắc. Bật cần xác thực thành công 1 lần;
+  /// trả về true nếu trạng thái mới được áp dụng.
+  Future<bool> setBiometricEnabled(bool enabled) async {
+    if (enabled) {
+      if (!_pinEnabled || !await refreshBiometricAvailability()) return false;
+      final ok = await _biometric
+          .authenticate('Xác nhận để bật mở khoá bằng vân tay / Face ID');
+      if (!ok) return false;
+    }
+    _biometricEnabled = enabled;
+    await StorageService.putSetting(_kBiometricEnabled, enabled);
+    notifyListeners();
+    return true;
+  }
+
+  /// Mở khoá bằng sinh trắc (lock screen). Huỷ/lỗi chỉ trả false — không
+  /// tính là nhập sai PIN.
+  Future<bool> unlockWithBiometric() async {
+    if (!biometricEnabled || !await _biometric.isAvailable()) return false;
+    final ok = await _biometric.authenticate('Mở khoá Lỗ nhiều chưa?');
+    if (ok) await _resetPinAttempts();
+    return ok;
   }
 
   /// Complete onboarding
@@ -156,15 +257,46 @@ class AppStore extends ChangeNotifier {
 
   /// Enable/disable PIN lock
   Future<void> setPinEnabled(bool enabled, {String pin = ''}) async {
-    _pinEnabled = enabled;
-    _pin = pin;
-    await StorageService.putSetting(_kPinEnabled, enabled);
-    await StorageService.putSetting(_kPin, pin);
+    final credential = enabled ? PinCredential.create(pin) : null;
+    _pinCredential = credential;
+    _pinEnabled = enabled && credential != null;
+    if (credential != null) {
+      await _savePinCredential(credential);
+    } else {
+      // Tắt PIN: xoá salt + hash, tắt luôn sinh trắc (chỉ là lớp tiện lợi).
+      _biometricEnabled = false;
+      await StorageService.putSetting(_kPinSalt, null);
+      await StorageService.putSetting(_kPinHash, null);
+      await StorageService.putSetting(_kPinIterations, null);
+      await StorageService.putSetting(_kBiometricEnabled, false);
+    }
+    await StorageService.putSetting(_kLegacyPin, null);
+    await _resetPinAttempts();
+    await StorageService.putSetting(_kPinEnabled, _pinEnabled);
     notifyListeners();
   }
 
   /// Kiểm tra PIN nhập vào có khớp PIN đã lưu không — dùng bởi `LockScreen`.
-  bool verifyPin(String pin) => _pinEnabled && pin.isNotEmpty && pin == _pin;
+  /// Đang bị khoá (sai ≥ 5 lần liên tiếp) thì trả false mà không so khớp;
+  /// xem [pinBlockRemaining]. Số lần sai + mốc hết khoá được lưu bền.
+  Future<bool> verifyPin(String pin) async {
+    final credential = _pinCredential;
+    if (!_pinEnabled || credential == null || pin.isEmpty) return false;
+    if (pinBlockRemaining > Duration.zero) return false;
+
+    if (credential.verify(pin)) {
+      await _resetPinAttempts();
+      return true;
+    }
+    _pinFailCount++;
+    final block = PinLockout.blockFor(_pinFailCount);
+    _pinBlockedUntilMs = block > Duration.zero
+        ? DateTime.now().add(block).millisecondsSinceEpoch
+        : null;
+    await StorageService.putSetting(_kPinFailCount, _pinFailCount);
+    await StorageService.putSetting(_kPinBlockedUntil, _pinBlockedUntilMs);
+    return false;
+  }
 
   /// Refresh gold prices from the active source
   Future<void> refreshPrices() async {

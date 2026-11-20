@@ -1,5 +1,6 @@
 package vn.lo.app
 
-import io.flutter.embedding.android.FlutterActivity
+import io.flutter.embedding.android.FlutterFragmentActivity
 
-class MainActivity : FlutterActivity()
+// local_auth yêu cầu FragmentActivity để hiện BiometricPrompt.
+class MainActivity : FlutterFragmentActivity()

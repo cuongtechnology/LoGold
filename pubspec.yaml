@@ -49,6 +49,10 @@ dependencies:
   # Xin đánh giá app (In-App Review)
   in_app_review: ^2.0.12
 
+  # Khoá PIN: mở khoá sinh trắc học + băm PIN
+  local_auth: ^3.0.0
+  crypto: ^3.0.3
+
 dev_dependencies:
   flutter_test:
     sdk: flutter
