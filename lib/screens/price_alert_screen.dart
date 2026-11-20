@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:uuid/uuid.dart';
 
@@ -75,19 +76,48 @@ class _PriceAlertScreenState extends State<PriceAlertScreen>
       return EmptyState(
         emoji: '🔔',
         title: 'Chưa có cảnh báo nào',
-        subtitle: 'Thêm cảnh báo để được thông báo khi giá vàng thay đổi',
+        subtitle:
+            'Thêm cảnh báo để được thông báo khi giá vàng thay đổi (chỉ kiểm tra lúc mở app và giá được cập nhật)',
         actionText: 'Thêm cảnh báo',
         onAction: () => _showAddAlertDialog(context, store),
       );
     }
 
-    return ListView.builder(
-      padding: const EdgeInsets.only(bottom: 80),
-      itemCount: alerts.length,
-      itemBuilder: (context, index) {
-        final alert = alerts[index];
-        return _buildAlertCard(store, alert);
-      },
+    return Column(
+      children: [
+        _buildHint(),
+        Expanded(
+          child: ListView.builder(
+            padding: const EdgeInsets.only(bottom: 80),
+            itemCount: alerts.length,
+            itemBuilder: (context, index) {
+              final alert = alerts[index];
+              return _buildAlertCard(store, alert);
+            },
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// Nói thật: không có tác vụ nền, chỉ kiểm tra khi app cập nhật giá.
+  Widget _buildHint() {
+    return const Padding(
+      padding: EdgeInsets.fromLTRB(16, 12, 16, 4),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(Icons.info_outline, size: 16, color: AppColors.textHint),
+          SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              'Cảnh báo chỉ được kiểm tra khi bạn mở app và giá vàng được cập nhật. '
+              'Đóng app thì hết báo nha.',
+              style: TextStyle(color: AppColors.textHint, fontSize: 12),
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -361,6 +391,9 @@ class _AddAlertDialogState extends State<_AddAlertDialog> {
   String? _selectedGoldTypeId;
   double _targetPrice = 0;
   double _targetPL = 0;
+  PriceAlertDirection _direction = PriceAlertDirection.above;
+  bool _directionTouched = false; // user tự chọn hướng → ngừng tự suy ra
+  String? _error;
   final _priceController = TextEditingController();
   final _plController = TextEditingController();
 
@@ -371,9 +404,65 @@ class _AddAlertDialogState extends State<_AddAlertDialog> {
     super.dispose();
   }
 
+  /// Chọn loại vàng mặc định khi cần 1 loại cụ thể (giá mục tiêu).
+  void _ensureGoldTypeForPriceTarget() {
+    if (_selectedGoldTypeId == null && widget.store.goldTypes.isNotEmpty) {
+      _selectedGoldTypeId = widget.store.goldTypes.first.id;
+    }
+  }
+
+  /// Tự suy hướng: mục tiêu cao hơn giá hiện tại → "lên tới", thấp hơn →
+  /// "xuống tới". User chọn tay thì giữ nguyên.
+  void _inferDirection() {
+    if (_directionTouched) return;
+    final current = _selectedGoldTypeId == null
+        ? null
+        : widget.store.getBuyPrice(_selectedGoldTypeId!);
+    if (current == null || _targetPrice <= 0) return;
+    _direction = _targetPrice >= current
+        ? PriceAlertDirection.above
+        : PriceAlertDirection.below;
+  }
+
+  Widget _buildDirectionSelector() {
+    Widget chip(PriceAlertDirection d, String label, IconData icon) {
+      final selected = _direction == d;
+      return ChoiceChip(
+        selected: selected,
+        avatar: Icon(icon, size: 16, color: selected ? AppColors.gold : AppColors.textHint),
+        label: Text(label),
+        labelStyle: TextStyle(
+          fontSize: 12,
+          color: selected ? AppColors.gold : AppColors.textSecondary,
+        ),
+        selectedColor: AppColors.gold.withValues(alpha: 0.15),
+        backgroundColor: AppColors.bgPrimary,
+        side: BorderSide(color: selected ? AppColors.gold : AppColors.divider),
+        showCheckmark: false,
+        onSelected: (_) => setState(() {
+          _direction = d;
+          _directionTouched = true;
+        }),
+      );
+    }
+
+    return Wrap(
+      spacing: 8,
+      children: [
+        chip(PriceAlertDirection.above, 'Báo khi giá lên tới', Icons.arrow_upward),
+        chip(PriceAlertDirection.below, 'Báo khi giá xuống tới', Icons.arrow_downward),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final goldTypes = widget.store.goldTypes;
+    final isPriceTarget = _selectedType == PriceAlertType.priceTarget;
+    if (isPriceTarget) _ensureGoldTypeForPriceTarget();
+    final currentBuyPrice = _selectedGoldTypeId == null
+        ? null
+        : widget.store.getBuyPrice(_selectedGoldTypeId!);
 
     return AlertDialog(
       backgroundColor: AppColors.bgCard,
@@ -403,33 +492,52 @@ class _AddAlertDialogState extends State<_AddAlertDialog> {
               decoration: _inputDecoration('Tất cả loại vàng'),
               dropdownColor: AppColors.bgCard,
               items: [
-                const DropdownMenuItem<String?>(
-                  value: null,
-                  child: Text('Tất cả loại vàng', style: TextStyle(color: AppColors.textPrimary)),
-                ),
+                // Giá mục tiêu phải gắn với 1 loại vàng cụ thể.
+                if (!isPriceTarget)
+                  const DropdownMenuItem<String?>(
+                    value: null,
+                    child: Text('Tất cả loại vàng', style: TextStyle(color: AppColors.textPrimary)),
+                  ),
                 ...goldTypes.map((g) => DropdownMenuItem<String?>(
                       value: g.id,
                       child: Text(g.displayName, style: const TextStyle(color: AppColors.textPrimary)),
                     )),
               ],
-              onChanged: (val) => setState(() => _selectedGoldTypeId = val),
+              onChanged: (val) => setState(() {
+                _selectedGoldTypeId = val;
+                _inferDirection();
+              }),
             ),
             const SizedBox(height: 16),
 
             // Conditional input based on type
-            if (_selectedType == PriceAlertType.priceTarget) ...[
+            if (isPriceTarget) ...[
+              // Theo dõi giá tiệm THU MUA (giá bạn bán được), không phải giá bán ra.
+              Text(
+                currentBuyPrice == null
+                    ? 'Theo dõi giá tiệm thu mua vào (giá bạn bán được)'
+                    : 'Giá tiệm thu mua hiện tại: ${Formatters.formatVnd(currentBuyPrice)}/lượng',
+                style: const TextStyle(color: AppColors.textHint, fontSize: 12),
+              ),
+              const SizedBox(height: 8),
               const Text(
-                'Giá mục tiêu (đ/lượng)',
+                'Giá thu mua mục tiêu (đ/lượng)',
                 style: TextStyle(color: AppColors.textSecondary, fontSize: 13),
               ),
               const SizedBox(height: 8),
               TextField(
                 controller: _priceController,
                 keyboardType: TextInputType.number,
+                inputFormatters: [FilteringTextInputFormatter.digitsOnly],
                 decoration: _inputDecoration('VD: 120000000'),
                 style: const TextStyle(color: AppColors.textPrimary),
-                onChanged: (val) => _targetPrice = double.tryParse(val) ?? 0,
+                onChanged: (val) => setState(() {
+                  _targetPrice = double.tryParse(val) ?? 0;
+                  _inferDirection();
+                }),
               ),
+              const SizedBox(height: 12),
+              _buildDirectionSelector(),
             ],
             if (_selectedType == PriceAlertType.lossThreshold ||
                 _selectedType == PriceAlertType.profitThreshold) ...[
@@ -441,6 +549,7 @@ class _AddAlertDialogState extends State<_AddAlertDialog> {
               TextField(
                 controller: _plController,
                 keyboardType: TextInputType.number,
+                inputFormatters: [FilteringTextInputFormatter.digitsOnly],
                 decoration: _inputDecoration(
                   _selectedType == PriceAlertType.lossThreshold
                       ? 'VD: 5000000 (lỗ 5 triệu)'
@@ -492,6 +601,10 @@ class _AddAlertDialogState extends State<_AddAlertDialog> {
                 ),
               ),
             ],
+            if (_error != null) ...[
+              const SizedBox(height: 12),
+              Text(_error!, style: const TextStyle(color: AppColors.loss, fontSize: 12)),
+            ],
           ],
         ),
       ),
@@ -527,7 +640,10 @@ class _AddAlertDialogState extends State<_AddAlertDialog> {
       children: types.map((t) {
         final isSelected = _selectedType == t.$1;
         return GestureDetector(
-          onTap: () => setState(() => _selectedType = t.$1),
+          onTap: () => setState(() {
+            _selectedType = t.$1;
+            _error = null;
+          }),
           child: Container(
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
             decoration: BoxDecoration(
@@ -581,11 +697,24 @@ class _AddAlertDialogState extends State<_AddAlertDialog> {
   }
 
   void _addAlert() {
+    final isPriceTarget = _selectedType == PriceAlertType.priceTarget;
+    final isThreshold = _selectedType == PriceAlertType.lossThreshold ||
+        _selectedType == PriceAlertType.profitThreshold;
+    if (isPriceTarget && (_targetPrice <= 0 || _selectedGoldTypeId == null)) {
+      setState(() => _error = 'Nhập giá mục tiêu và chọn loại vàng nha.');
+      return;
+    }
+    if (isThreshold && _targetPL <= 0) {
+      setState(() => _error = 'Nhập ngưỡng lớn hơn 0 nha.');
+      return;
+    }
+
     final alert = PriceAlert(
       id: const Uuid().v4(),
       type: _selectedType,
       goldTypeId: _selectedGoldTypeId,
-      targetPrice: _selectedType == PriceAlertType.priceTarget ? _targetPrice : null,
+      targetPrice: isPriceTarget ? _targetPrice : null,
+      direction: _direction,
       targetProfitLoss:
           (_selectedType == PriceAlertType.lossThreshold || _selectedType == PriceAlertType.profitThreshold)
               ? _targetPL

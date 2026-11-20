@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
+import 'package:intl/intl.dart';
 import '../models/user_holding.dart';
 import '../models/gold_type.dart';
 import '../models/gold_price.dart';
@@ -63,6 +64,26 @@ class AppStore extends ChangeNotifier {
   List<AppNotification> get notifications => _notificationService.notifications;
   PriceSourceStatus get priceStatus => _priceService.status;
   String get priceStatusMessage => _priceService.statusMessage;
+  /// Lần lấy giá thành công gần nhất (kể cả giá đã lưu từ phiên trước).
+  DateTime? get pricesUpdatedAt => _priceService.lastUpdated;
+
+  /// Nhãn ngắn cho trạng thái giá ("Cập nhật lúc 14:05" / "Giá cũ ..."),
+  /// dùng chung Trang chủ và Bảng giá.
+  String get priceStatusLabel {
+    final at = pricesUpdatedAt;
+    final hhmm = at == null ? null : DateFormat('HH:mm').format(at);
+    switch (priceStatus) {
+      case PriceSourceStatus.fresh:
+        return hhmm == null ? priceStatusMessage : 'Cập nhật lúc $hhmm';
+      case PriceSourceStatus.stale:
+        return hhmm == null
+            ? 'Giá có thể đã cũ'
+            : 'Giá cũ · cập nhật lúc $hhmm';
+      case PriceSourceStatus.error:
+      case PriceSourceStatus.unavailable:
+        return priceStatusMessage;
+    }
+  }
   /// Series lịch sử SJC (loại vàng chính, tải sẵn lúc app khởi động).
   List<HistoricalPricePoint> get historicalPrices =>
       _historicalPriceService.seriesFor('sjc');
@@ -91,6 +112,10 @@ class AppStore extends ChangeNotifier {
 
     _goldTypes = _portfolio.goldTypes;
     _holdings = _portfolio.allHoldings;
+    // Giá đã lưu từ phiên trước — có số ngay, không đợi mạng.
+    await _priceService.loadCachedPrices();
+    _prices = _priceService.getAllPrices();
+    _updatePortfolioSummary();
     // Bắn ngay ở đây — không đợi `refreshPrices()` (phụ thuộc mạng, có thể
     // chậm/timeout) mới cho UI (vd: chọn loại vàng ở Onboarding) thấy dữ
     // liệu local đã sẵn sàng.
@@ -101,6 +126,7 @@ class AppStore extends ChangeNotifier {
 
     _setLoading(false);
     notifyListeners();
+    startAutoRefresh();
 
     // Không chặn startup vì dữ liệu lịch sử chỉ phục vụ phân tích/so sánh,
     // không cần thiết cho các màn hình chính. Xong sẽ tự notifyListeners.
@@ -173,6 +199,40 @@ class AppStore extends ChangeNotifier {
     notifyListeners();
   }
 
+  // ===== Tự làm mới giá =====
+  static const _autoRefreshInterval = Duration(minutes: 5);
+  Timer? _autoRefreshTimer;
+
+  /// Bật làm mới định kỳ (~5 phút) khi app ở foreground.
+  void startAutoRefresh() {
+    _autoRefreshTimer?.cancel();
+    _autoRefreshTimer = Timer.periodic(_autoRefreshInterval, (_) {
+      refreshPrices();
+    });
+  }
+
+  /// Tắt làm mới định kỳ (gọi khi app xuống nền).
+  void stopAutoRefresh() {
+    _autoRefreshTimer?.cancel();
+    _autoRefreshTimer = null;
+  }
+
+  /// Gọi khi app quay lại foreground: làm mới nếu lần lấy giá thành công
+  /// gần nhất đã cũ hơn [maxAge], rồi bật lại timer định kỳ.
+  Future<void> onAppResumed({Duration maxAge = _autoRefreshInterval}) async {
+    startAutoRefresh();
+    final last = _priceService.lastUpdated;
+    if (last == null || DateTime.now().difference(last) >= maxAge) {
+      await refreshPrices();
+    }
+  }
+
+  @override
+  void dispose() {
+    _autoRefreshTimer?.cancel();
+    super.dispose();
+  }
+
   /// Add a new gold purchase
   Future<void> addHolding({
     required String goldTypeId,
@@ -232,6 +292,9 @@ class AppStore extends ChangeNotifier {
   /// Add a price alert
   Future<void> addAlert(PriceAlert alert) async {
     await _notificationService.addAlert(alert);
+    // Xin quyền thông báo hệ thống ngay khi user tạo cảnh báo (không chặn UI).
+    unawaited(_notificationService.requestSystemPermission());
+    _updatePortfolioSummary(); // điều kiện đã đúng sẵn thì báo luôn
     notifyListeners();
   }
 
@@ -243,7 +306,11 @@ class AppStore extends ChangeNotifier {
 
   /// Toggle alert enabled
   Future<void> toggleAlert(String id) async {
-    await _notificationService.toggleAlert(id);
+    final enabled = await _notificationService.toggleAlert(id);
+    if (enabled == true) {
+      unawaited(_notificationService.requestSystemPermission());
+      _updatePortfolioSummary();
+    }
     notifyListeners();
   }
 
@@ -283,13 +350,18 @@ class AppStore extends ChangeNotifier {
 
     // Check alerts
     if (_portfolioSummary != null) {
+      // buyPrice = giá tiệm thu mua (giá user bán được) — xem getBuyPrice.
+      final buyPrices = <String, double>{};
       final priceChanges = <String, double>{};
-      for (final price in _prices) {
+      for (final price in _priceService.getAllPrices()) {
+        buyPrices[price.goldTypeId] = price.buyPrice;
         priceChanges[price.goldTypeId] = price.buyPriceChange;
       }
       _notificationService.checkAlerts(
         summary: _portfolioSummary!,
+        buyPrices: buyPrices,
         priceChanges: priceChanges,
+        goldTypeNames: {for (final g in _goldTypes) g.id: g.displayName},
       );
     }
   }

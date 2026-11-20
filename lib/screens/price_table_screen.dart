@@ -354,18 +354,18 @@ class _PriceTableScreenState extends State<PriceTableScreen> {
     switch (status) {
       case PriceSourceStatus.fresh:
         statusColor = AppColors.profit;
-        statusText = store.priceStatusMessage;
+        statusText = store.priceStatusLabel;
         break;
       case PriceSourceStatus.stale:
         statusColor = AppColors.warning;
-        statusText = 'Dữ liệu có thể cũ';
+        // Message đã nói rõ đang dùng giá lưu lúc nào (mất kết nối).
+        statusText = store.priceStatusMessage;
         break;
       case PriceSourceStatus.error:
         statusColor = AppColors.loss;
-        // Show real error để debug — nếu quá dài UI cắt.
         statusText = store.priceStatusMessage.isEmpty
-            ? 'Lỗi tải giá'
-            : 'Lỗi: ${store.priceStatusMessage}';
+            ? 'Không tải được giá vàng'
+            : store.priceStatusMessage;
         break;
       case PriceSourceStatus.unavailable:
         statusColor = AppColors.neutral;
@@ -403,7 +403,9 @@ class _PriceTableScreenState extends State<PriceTableScreen> {
           ),
           const Spacer(),
           Text(
-            Formatters.formatDateTime(DateTime.now()),
+            store.pricesUpdatedAt == null
+                ? ''
+                : Formatters.formatDateTime(store.pricesUpdatedAt!),
             style: const TextStyle(
               color: AppColors.textHint,
               fontSize: 11,

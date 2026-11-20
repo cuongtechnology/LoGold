@@ -172,11 +172,15 @@ class _AppGateState extends State<_AppGate> with WidgetsBindingObserver {
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
+    final store = context.read<AppStore>();
     if (state == AppLifecycleState.paused) {
-      final store = context.read<AppStore>();
+      store.stopAutoRefresh();
       if (store.pinEnabled && _unlocked) {
         setState(() => _unlocked = false);
       }
+    } else if (state == AppLifecycleState.resumed) {
+      // Làm mới giá nếu đã cũ > 5 phút + bật lại timer định kỳ.
+      unawaited(store.onAppResumed());
     }
   }
 

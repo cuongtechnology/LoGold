@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../api/price_adapter.dart'; // PriceSourceStatus
 import '../constants/app_constants.dart';
 import '../stores/app_store.dart';
 import '../services/profit_loss_calculator.dart';
@@ -104,9 +105,11 @@ class _HomeScreenState extends State<HomeScreen> {
                       borderRadius: BorderRadius.circular(8),
                     ),
                     child: Text(
-                      store.priceStatusMessage,
-                      style: const TextStyle(
-                        color: AppColors.textHint,
+                      store.priceStatusLabel,
+                      style: TextStyle(
+                        color: store.priceStatus == PriceSourceStatus.fresh
+                            ? AppColors.textHint
+                            : AppColors.warning,
                         fontSize: 10,
                       ),
                     ),

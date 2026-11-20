@@ -3,8 +3,9 @@ import 'dart:convert';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart';
-import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:http/http.dart' as http;
+
+import 'local_notification_service.dart';
 
 /// Xử lý message FCM khi app ở background/terminated. Phải là top-level
 /// function (không phải method trong class) và đánh dấu entry-point để
@@ -32,12 +33,6 @@ class PushNotificationService {
 
   PushNotificationService._();
 
-  static const _channelId = 'lo_gold_price';
-  static const _channelName = 'Biến động giá vàng';
-
-  final FlutterLocalNotificationsPlugin _localNotifications =
-      FlutterLocalNotificationsPlugin();
-
   bool _isReady = false;
   String _statusMessage = 'Chưa khởi tạo';
 
@@ -64,7 +59,7 @@ class PushNotificationService {
       return;
     }
 
-    await _initLocalNotifications();
+    await LocalNotificationService.instance.init();
     FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
 
     final messaging = FirebaseMessaging.instance;
@@ -107,43 +102,15 @@ class PushNotificationService {
     }
   }
 
-  Future<void> _initLocalNotifications() async {
-    const androidInit = AndroidInitializationSettings('@mipmap/ic_launcher');
-    const iosInit = DarwinInitializationSettings();
-    await _localNotifications.initialize(
-      settings: const InitializationSettings(android: androidInit, iOS: iosInit),
-    );
-
-    const channel = AndroidNotificationChannel(
-      _channelId,
-      _channelName,
-      description: 'Thông báo khi giá vàng biến động mạnh',
-      importance: Importance.high,
-    );
-    await _localNotifications
-        .resolvePlatformSpecificImplementation<
-            AndroidFlutterLocalNotificationsPlugin>()
-        ?.createNotificationChannel(channel);
-  }
-
   /// FCM không tự hiện notification khi app đang mở (foreground) — phải tự
   /// show qua `flutter_local_notifications`.
   void _showLocalNotification(RemoteMessage message) {
     final notification = message.notification;
     if (notification == null) return;
-    _localNotifications.show(
+    LocalNotificationService.instance.show(
       id: notification.hashCode,
       title: notification.title,
       body: notification.body,
-      notificationDetails: const NotificationDetails(
-        android: AndroidNotificationDetails(
-          _channelId,
-          _channelName,
-          importance: Importance.high,
-          priority: Priority.high,
-        ),
-        iOS: DarwinNotificationDetails(),
-      ),
     );
   }
 }

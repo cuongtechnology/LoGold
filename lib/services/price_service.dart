@@ -1,17 +1,87 @@
+import 'dart:convert';
+
+import 'package:flutter/foundation.dart';
+import 'package:intl/intl.dart';
+
 import '../models/gold_price.dart';
 import '../api/price_adapter.dart';
 import '../api/mock_price_adapter.dart';
+import 'storage_service.dart';
+
+/// Bản chụp giá đã lưu để hiển thị ngay khi mở app / khi mất mạng.
+class PriceCacheSnapshot {
+  final List<GoldPrice> prices;
+  final DateTime fetchedAt;
+
+  const PriceCacheSnapshot({required this.prices, required this.fetchedAt});
+}
+
+/// Nơi lưu bản chụp giá — tách ra để test PriceService không cần Hive.
+abstract class PriceCacheStorage {
+  Future<PriceCacheSnapshot?> load();
+  Future<void> save(PriceCacheSnapshot snapshot);
+}
+
+/// Lưu vào Hive (`priceHistory` box, 1 key JSON). Mọi lỗi (box chưa init,
+/// JSON hỏng) đều bị nuốt — cache hỏng thì coi như chưa có cache.
+class HivePriceCacheStorage implements PriceCacheStorage {
+  static const _key = 'lastPrices';
+
+  @override
+  Future<PriceCacheSnapshot?> load() async {
+    try {
+      final raw = StorageService.priceHistory.get(_key);
+      if (raw == null) return null;
+      final map = jsonDecode(raw) as Map<String, dynamic>;
+      final prices = (map['prices'] as List)
+          .map((e) => GoldPrice.fromMap(Map<String, dynamic>.from(e as Map)))
+          .toList();
+      return PriceCacheSnapshot(
+        prices: prices,
+        fetchedAt: DateTime.parse(map['fetchedAt'] as String),
+      );
+    } catch (e) {
+      if (kDebugMode) debugPrint('PriceService: không đọc được cache giá ($e)');
+      return null;
+    }
+  }
+
+  @override
+  Future<void> save(PriceCacheSnapshot snapshot) async {
+    try {
+      await StorageService.putMap(StorageService.priceHistory, _key, {
+        'fetchedAt': snapshot.fetchedAt.toIso8601String(),
+        'prices': snapshot.prices.map((p) => p.toMap()).toList(),
+      });
+    } catch (e) {
+      if (kDebugMode) debugPrint('PriceService: không lưu được cache giá ($e)');
+    }
+  }
+}
 
 /// PriceService - Central service for fetching and caching gold prices.
 ///
 /// Uses the adapter pattern to support multiple price sources.
-/// Currently uses MockPriceAdapter for development; real API adapters
-/// can be registered via registerAdapter() without changing the service.
+/// `fetchCurrentPrices` thử adapter đang active trước, rồi lần lượt các
+/// adapter còn lại (theo thứ tự đăng ký) cho tới khi có kết quả. Giá thành
+/// công gần nhất được lưu xuống đĩa; nếu mọi nguồn đều lỗi thì vẫn trả giá
+/// đã lưu và đánh dấu `stale`.
 class PriceService {
   static PriceService? _instance;
-  static PriceService get instance => _instance ??= PriceService._();
+  static PriceService get instance =>
+      _instance ??= PriceService._(HivePriceCacheStorage());
 
-  PriceService._();
+  PriceService._(this._storage, [DateTime Function()? now])
+      : _now = now ?? DateTime.now;
+
+  /// Instance độc lập cho test (không dùng singleton, không đụng Hive).
+  @visibleForTesting
+  PriceService.forTest({PriceCacheStorage? storage, DateTime Function()? now})
+      : _storage = storage,
+        _now = now ?? DateTime.now;
+
+  final PriceCacheStorage? _storage;
+  final DateTime Function() _now;
 
   final Map<String, PriceAdapter> _adapters = {};
   PriceAdapter _activeAdapter = MockPriceAdapter();
@@ -24,10 +94,15 @@ class PriceService {
 
   PriceSourceStatus _status = PriceSourceStatus.unavailable;
   String _statusMessage = '';
+  DateTime? _lastUpdated;
+  Future<List<GoldPrice>>? _inFlight;
 
   /// Current status of the price source
   PriceSourceStatus get status => _status;
   String get statusMessage => _statusMessage;
+
+  /// Thời điểm lấy giá thành công gần nhất (kể cả từ cache đã lưu).
+  DateTime? get lastUpdated => _lastUpdated;
 
   /// Register a new price adapter
   void registerAdapter(PriceAdapter adapter) {
@@ -41,35 +116,80 @@ class PriceService {
     }
   }
 
-  /// Fetch current prices from the active adapter and update cache.
-  Future<List<GoldPrice>> fetchCurrentPrices() async {
-    try {
+  /// Thứ tự thử: adapter active, rồi các adapter còn lại theo thứ tự đăng ký.
+  List<PriceAdapter> get _adapterOrder => [
+        _activeAdapter,
+        ..._adapters.values.where((a) => a.sourceKey != _activeAdapter.sourceKey),
+      ];
+
+  /// Nạp giá đã lưu vào cache (gọi 1 lần lúc khởi động, trước lần fetch đầu)
+  /// để UI có số ngay. Không làm gì nếu đã có giá trong cache.
+  Future<void> loadCachedPrices() async {
+    if (_priceCache.isNotEmpty) return;
+    final snapshot = await _storage?.load();
+    if (snapshot == null || snapshot.prices.isEmpty) return;
+    for (final price in snapshot.prices) {
+      _priceCache[price.goldTypeId] = price;
+    }
+    _lastUpdated = snapshot.fetchedAt;
+    _markStale();
+  }
+
+  /// Fetch current prices (adapter active → fallback) and update cache.
+  /// Gọi chồng nhau sẽ dùng chung 1 lần fetch đang chạy.
+  Future<List<GoldPrice>> fetchCurrentPrices() =>
+      _inFlight ??= _fetch().whenComplete(() => _inFlight = null);
+
+  Future<List<GoldPrice>> _fetch() async {
+    if (_priceCache.isEmpty) {
       _status = PriceSourceStatus.unavailable;
       _statusMessage = 'Đang tải giá...';
-
-      final available = await _activeAdapter.isAvailable();
-      if (!available) {
-        _status = PriceSourceStatus.unavailable;
-        _statusMessage = 'Nguồn giá không khả dụng';
-        return [];
-      }
-
-      final prices = await _activeAdapter.fetchPrices();
-
-      // Update cache
-      for (final price in prices) {
-        _priceCache[price.goldTypeId] = price;
-      }
-
-      _status = PriceSourceStatus.fresh;
-      _statusMessage = 'Đã cập nhật giá vàng';
-
-      return prices;
-    } catch (e) {
-      _status = PriceSourceStatus.error;
-      _statusMessage = 'Lỗi khi tải giá: $e';
-      return [];
     }
+
+    for (final adapter in _adapterOrder) {
+      try {
+        if (!await adapter.isAvailable()) continue;
+        final prices = await adapter.fetchPrices();
+        if (prices.isEmpty) continue;
+
+        for (final price in prices) {
+          _priceCache[price.goldTypeId] = price;
+        }
+        _lastUpdated = _now();
+        _status = PriceSourceStatus.fresh;
+        _statusMessage = 'Đã cập nhật giá vàng';
+        // Lưu nền — lỗi ghi đĩa không ảnh hưởng kết quả fetch.
+        final storage = _storage;
+        if (storage != null) {
+          storage.save(PriceCacheSnapshot(
+            prices: _priceCache.values.toList(),
+            fetchedAt: _lastUpdated!,
+          ));
+        }
+        return prices;
+      } catch (e) {
+        if (kDebugMode) {
+          debugPrint('PriceService: nguồn ${adapter.sourceKey} lỗi: $e');
+        }
+      }
+    }
+
+    // Mọi nguồn đều thất bại.
+    if (_priceCache.isNotEmpty) {
+      _markStale();
+    } else {
+      _status = PriceSourceStatus.error;
+      _statusMessage = 'Không tải được giá vàng, kiểm tra mạng rồi kéo xuống để thử lại';
+    }
+    return getAllPrices();
+  }
+
+  void _markStale() {
+    _status = PriceSourceStatus.stale;
+    final at = _lastUpdated;
+    _statusMessage = at == null
+        ? 'Đang dùng giá đã lưu (chưa kết nối được)'
+        : 'Đang dùng giá đã lưu lúc ${DateFormat('HH:mm dd/MM').format(at)} (chưa kết nối được)';
   }
 
   /// Get cached price for a specific gold type
